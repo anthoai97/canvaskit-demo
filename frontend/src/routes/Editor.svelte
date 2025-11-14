@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
 	import CanvasKitInit from 'canvaskit-wasm';
-	import type { Canvas, CanvasKit, Surface } from 'canvaskit-wasm';
+	import type { Canvas, CanvasKit, Image, Surface } from 'canvaskit-wasm';
 	import type { EditorPage } from '$lib/types/page';
 	import { rgbaToCanvasKitColor } from '$lib/types/color';
 	import { DEFAULT_CAMERA_ZOOM, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM } from '$lib/contants/const';
@@ -18,7 +18,6 @@
 	let canvasHeight: number;
 
 	let cleanupEvents: (() => void) | null = null;
-	let animationFrameId: number | null = null;
 
 	$: centerX = canvasWidth ? canvasWidth / 2 : 0;
 	$: centerY = canvasHeight ? canvasHeight / 2 : 0;
@@ -46,6 +45,42 @@
 		lastMouseY: 0
 	};
 
+	interface Shape {
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+		url: string;
+		image: Image | any;
+	}
+
+	let mock_data: Shape[] = [
+		{
+			x: 0,
+			y: 0,
+			width: 250,
+			height: 120,
+			url: 'https://marketplace.canva.com/jHhak/MAEIBXjHhak/1/s2/canva-untitled-MAEIBXjHhak.png',
+			image: null
+		}
+		// {
+		// 	x: 0,
+		// 	y: 300,
+		// 	width: 250,
+		// 	height: 120,
+		// 	url: 'https://marketplace.canva.com/jHhak/MAEIBXjHhak/1/s2/canva-untitled-MAEIBXjHhak.png',
+		// 	image: null
+		// },
+		// {
+		// 	x: 0,
+		// 	y: 600,
+		// 	width: 250,
+		// 	height: 120,
+		// 	url: 'https://marketplace.canva.com/jHhak/MAEIBXjHhak/1/s2/canva-untitled-MAEIBXjHhak.png',
+		// 	image: null
+		// }
+	];
+
 	onMount(async () => {
 		canvasWidth = editor.clientWidth;
 		canvasHeight = editor.clientHeight;
@@ -65,18 +100,33 @@
 		surface = ck.MakeWebGLCanvasSurface(canvas);
 		skCanvas = surface?.getCanvas() ?? null;
 
+		mock_data = await updateItemsSequential(mock_data);
+		console.log(mock_data);
+
 		cleanupEvents = bindEvents();
 		drawScene();
 	});
 
 	onDestroy(() => {
-		if (animationFrameId !== null) {
-			cancelAnimationFrame(animationFrameId);
-		}
 		if (cleanupEvents) {
 			cleanupEvents();
 		}
 	});
+
+	async function updateItemsSequential(data: any[]): Promise<any[]> {
+		const result: any[] = [];
+		for (const shape of data) {
+			const updated = await loadSkImage(ck, shape.url);
+			result.push({ ...shape, image: updated });
+		}
+		return result;
+	}
+
+	const loadSkImage = async (ck: CanvasKit, url: string) => {
+		const buf = await fetch(url).then((r) => r.arrayBuffer());
+		const img = ck.MakeImageFromEncoded(new Uint8Array(buf));
+		return img;
+	};
 
 	// const scheduleDraw = () => {
 	// 	// Cancel any pending animation frame
@@ -108,51 +158,42 @@
 		mouseState.lastMouseX = currentMouseX;
 		mouseState.lastMouseY = currentMouseY;
 
-		// Schedule redraw using requestAnimationFrame for smooth rendering
-		// scheduleDraw();
 		drawScene();
 	};
 
-	// const drawScene = () => {
-	// 	const surface = ck.MakeWebGLCanvasSurface(canvas);
-	// 	const skCanvas = surface?.getCanvas();
-
-	// 	skCanvas?.clear(ck.Color(0, 0, 0, 1.0));
-
-	// 	const draw = (canvas: Canvas) => {
-	// 		canvas.save();
-
-	// 		canvas.translate(cameraState.panX, cameraState.panY);
-	// 		canvas.scale(cameraState.zoom, cameraState.zoom);
-	// 		const paint = new ck.Paint();
-	// 		paint.setColor(rgbaToCanvasKitColor(ck, page.backgroundColor));
-	// 		const bg_x = -page.width / 2;
-	// 		const bg_y = -page.height / 2;
-	// 		const bg_width = page.width;
-	// 		const bg_height = page.height;
-	// 		canvas.drawRect(ck.XYWHRect(bg_x, bg_y, bg_width, bg_height), paint);
-
-	// 		// Draw other elements in world space
-	// 		paint.setColor(ck.Color(0, 0, 255, 1.0));
-	// 		canvas.drawCircle(100, 100, 50, paint);
-
-	// 		canvas.restore();
-	// 	};
-
-	// 	surface?.drawOnce((canvas: Canvas) => draw(canvas));
-	// };
-
 	const drawScene = () => {
-		skCanvas?.clear(rgbaToCanvasKitColor(ck, { r: 0, g: 0, b: 0, a: 1.0 })); // black background
+		skCanvas?.clear(ck.Color(0, 0, 0, 1.0));
 
-		// Apply translation for panning
 		skCanvas?.save();
+
 		skCanvas?.translate(cameraState.panX, cameraState.panY);
+		skCanvas?.scale(cameraState.zoom, cameraState.zoom);
 		const paint = new ck.Paint();
-		paint.setColor(ck.Color(0, 0, 255, 1.0));
-		// Draw a few shapes
-		skCanvas?.drawCircle(100, 100, 40, paint);
-		skCanvas?.drawRect(ck.XYWHRect(200, 200, 80, 80), paint);
+		paint.setColor(rgbaToCanvasKitColor(ck, page.backgroundColor));
+		const bg_x = -page.width / 2;
+		const bg_y = -page.height / 2;
+		const bg_width = page.width;
+		const bg_height = page.height;
+		skCanvas?.drawRect(ck.XYWHRect(bg_x, bg_y, bg_width, bg_height), paint);
+
+		// Draw other elements in world space
+		//
+		// paint.setColor(ck.Color(0, 0, 255, 1.0));
+		// skCanvas?.drawCircle(0, 0, 50, paint);
+		const imagePaint = new ck.Paint();
+		const borderPaint = new ck.Paint();
+		borderPaint.setStyle(ck.PaintStyle.Stroke);
+		borderPaint.setStrokeWidth(2);
+		borderPaint.setColor(ck.Color(255, 0, 0));
+		for (const im of mock_data) {
+			const src = ck.XYWHRect(0, 0, im.image.width(), im.image.height());
+			const dst = ck.XYWHRect(im.x, im.y, im.width, im.height);
+			skCanvas?.drawImageRect(im.image, src, dst, imagePaint);
+		}
+
+		const border = mock_data[0];
+
+		skCanvas?.drawRect(ck.XYWHRect(border.x, border.y, border.width, border.height), borderPaint);
 
 		skCanvas?.restore();
 		surface?.flush();
@@ -190,11 +231,18 @@
 			canvasCursor = 'grabbing';
 			handlePanning(event);
 		}
+
+		let r = editor?.getBoundingClientRect();
+		let x = event.clientX - r.left;
+		let y = event.clientY - r.top;
+
+		console.log(x, y);
 	};
 
 	const handleMouseDown = (event: MouseEvent) => {
+		event.preventDefault();
+
 		if (cameraState.isPanning) {
-			event.preventDefault();
 			mouseState.isMouseDown = true;
 
 			// Store the initial mouse position when starting to drag
@@ -292,8 +340,12 @@
 	};
 </script>
 
-<div class="editor w-full h-screen overflow-hidden cursor-{canvasCursor}" bind:this={editor}>
-	<canvas id="canvas" bind:this={canvas}></canvas>
+<div class="flex">
+	<div class="w-[200px]"></div>
+
+	<div class="editor w-full h-screen overflow-hidden cursor-{canvasCursor}" bind:this={editor}>
+		<canvas id="canvas" bind:this={canvas}></canvas>
+	</div>
 </div>
 
 <style>
