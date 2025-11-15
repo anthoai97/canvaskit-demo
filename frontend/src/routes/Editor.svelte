@@ -1,22 +1,68 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
-	import CanvasKitInit from 'canvaskit-wasm';
-	import type { Canvas, CanvasKit, Image, Surface } from 'canvaskit-wasm';
+	import type { Canvas, CanvasKit, Surface } from 'canvaskit-wasm';
 	import type { EditorPage } from '$lib/types/page';
-	import { rgbaToCanvasKitColor } from '$lib/types/color';
-	import { DEFAULT_CAMERA_ZOOM, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM } from '$lib/contants/const';
+	import {
+		DEFAULT_CAMERA_ZOOM,
+		MIN_CAMERA_ZOOM,
+		MAX_CAMERA_ZOOM,
+		HOVER_CHECK_DELAY,
+		INVALID_INDEX,
+		ZOOM_IN_FACTOR,
+		ZOOM_OUT_FACTOR,
+		CURSOR_DEFAULT,
+		CURSOR_POINTER,
+		CURSOR_GRAB,
+		CURSOR_GRABBING
+	} from '$lib/contants/const';
 	import type { CameraState } from '$lib/types/camera';
 	import type { MouseState } from '$lib/types/mouse';
+	import type { Shape } from '$lib/types/shape';
+	import { initCanvasKit, createWebGLSurface } from '$lib/canvakit/canvas';
+	import { loadImageBinary } from '$lib/canvakit/image';
+	import { createPaints, drawBackground, drawHoverBorder, drawSelectedBorder } from '$lib/canvakit/drawing';
+	import { screenToWorld, getMousePosition } from '$lib/utils/coordinates';
+	import { calculateViewport, isRectVisible } from '$lib/utils/viewport';
+	import { findShapeAtPoint } from '$lib/utils/hit-test';
+	import {
+		getHoveredResizeCorner,
+		getAnchorPoint,
+		calculateDimensionsFromAnchor,
+		calculatePositionFromAnchor,
+		applyMinSizeConstraints,
+		type ResizeCorner
+	} from '$lib/utils/resize';
 
 	let editor: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
 	let ck: CanvasKit;
 
-	let canvasCursor = 'default';
-
 	let canvasWidth: number;
 	let canvasHeight: number;
 
+	// UI state
+	let canvasCursor = CURSOR_DEFAULT;
+	let hoveredShapeIndex = INVALID_INDEX;
+	let selectedShapeIndex = INVALID_INDEX;
+	let hoveredResizeCorner: ResizeCorner | null = null;
+	let resizingCorner: ResizeCorner | null = null;
+	
+	// Resize state - stores initial shape state when resize starts
+	let resizeStartState: {
+		shape: Shape;
+		startMousePos: { x: number; y: number };
+		aspectRatio: number;
+	} | null = null;
+
+	// Paint objects (reused for performance)
+	let paints: ReturnType<typeof createPaints> | null = null;
+
+	// Performance optimization: requestAnimationFrame throttling
+	let animationFrameId: number | null = null;
+	let needsRedraw = false;
+	let hoverCheckTimeout: number | null = null;
+
+	// Event handlers cleanup
 	let cleanupEvents: (() => void) | null = null;
 
 	$: centerX = canvasWidth ? canvasWidth / 2 : 0;
@@ -45,40 +91,88 @@
 		lastMouseY: 0
 	};
 
-	interface Shape {
-		x: number;
-		y: number;
-		width: number;
-		height: number;
-		url: string;
-		image: Image | any;
-	}
-
 	let mock_data: Shape[] = [
 		{
-			x: 0,
-			y: 0,
+			x: 200,
+			y: -200,
+			width: 300,
+			height: 200,
+			ratio: 0,
+			url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
+			image: null
+		},
+		{
+			x: -600,
+			y: 100,
+			width: 400,
+			height: 300,
+			ratio: 0,
+			url: 'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=800',
+			image: null
+		},
+		{
+			x: 300,
+			y: 200,
 			width: 250,
-			height: 120,
-			url: 'https://marketplace.canva.com/jHhak/MAEIBXjHhak/1/s2/canva-untitled-MAEIBXjHhak.png',
+			height: 180,
+			ratio: 0,
+			url: 'https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800',
+			image: null
+		},
+		{
+			x: -200,
+			y: 400,
+			width: 350,
+			height: 250,
+			ratio: 0,
+			url: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=800',
+			image: null
+		},
+		{
+			x: 500,
+			y: -400,
+			width: 200,
+			height: 150,
+			ratio: 0,
+			url: 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800',
+			image: null
+		},
+		{
+			x: -300,
+			y: -500,
+			width: 280,
+			height: 200,
+			ratio: 0,
+			url: 'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=800',
+			image: null
+		},
+		{
+			x: 100,
+			y: 500,
+			width: 320,
+			height: 240,
+			ratio: 0,
+			url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800',
+			image: null
+		},
+		{
+			x: -500,
+			y: 300,
+			width: 180,
+			height: 180,
+			ratio: 0,
+			url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
+			image: null
+		},
+		{
+			x: 600,
+			y: 300,
+			width: 400,
+			height: 300,
+			ratio: 0,
+			url: 'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=800',
 			image: null
 		}
-		// {
-		// 	x: 0,
-		// 	y: 300,
-		// 	width: 250,
-		// 	height: 120,
-		// 	url: 'https://marketplace.canva.com/jHhak/MAEIBXjHhak/1/s2/canva-untitled-MAEIBXjHhak.png',
-		// 	image: null
-		// },
-		// {
-		// 	x: 0,
-		// 	y: 600,
-		// 	width: 250,
-		// 	height: 120,
-		// 	url: 'https://marketplace.canva.com/jHhak/MAEIBXjHhak/1/s2/canva-untitled-MAEIBXjHhak.png',
-		// 	image: null
-		// }
 	];
 
 	onMount(async () => {
@@ -93,249 +187,558 @@
 		cameraState.panX = centerX;
 		cameraState.panY = centerY;
 
-		ck = await CanvasKitInit({
-			locateFile: (file) => `node_modules/canvaskit-wasm/bin/${file}`
-		});
+		ck = await initCanvasKit();
 
-		surface = ck.MakeWebGLCanvasSurface(canvas);
+		surface = createWebGLSurface(ck, canvas);
 		skCanvas = surface?.getCanvas() ?? null;
 
-		mock_data = await updateItemsSequential(mock_data);
-		console.log(mock_data);
+		mock_data = await loadImageBinary(ck, mock_data);
+
+		paints = createPaints(ck, page);
 
 		cleanupEvents = bindEvents();
 		drawScene();
 	});
 
 	onDestroy(() => {
-		if (cleanupEvents) {
-			cleanupEvents();
+		cleanupEvents?.();
+		
+		if (animationFrameId !== null) {
+			cancelAnimationFrame(animationFrameId);
 		}
+		
+		if (hoverCheckTimeout !== null) {
+			clearTimeout(hoverCheckTimeout);
+		}
+
+		selectedShapeIndex = INVALID_INDEX;
+		hoveredShapeIndex = INVALID_INDEX;
+		hoveredResizeCorner = null;
+		resizingCorner = null;
+		resizeStartState = null;
 	});
 
-	async function updateItemsSequential(data: any[]): Promise<any[]> {
-		const result: any[] = [];
-		for (const shape of data) {
-			const updated = await loadSkImage(ck, shape.url);
-			result.push({ ...shape, image: updated });
+	// ==================== Helper Functions ====================
+	
+	/**
+	 * Updates cursor style based on current state
+	 */
+	const updateCursor = () => {
+		if (cameraState.isPanning) {
+			canvasCursor = mouseState.isMouseDown ? CURSOR_GRABBING : CURSOR_GRAB;
+		} else if (hoveredResizeCorner !== null) {
+			// Set resize cursors based on corner position
+			switch (hoveredResizeCorner) {
+				case 'top-left':
+				case 'bottom-right':
+					canvasCursor = 'nwse-resize';
+					break;
+				case 'top-right':
+				case 'bottom-left':
+					canvasCursor = 'nesw-resize';
+					break;
+			}
+		} else if (hoveredShapeIndex !== INVALID_INDEX) {
+			canvasCursor = mouseState.isDragging ? CURSOR_GRABBING : CURSOR_POINTER;
+		} else {
+			canvasCursor = CURSOR_DEFAULT;
 		}
-		return result;
-	}
-
-	const loadSkImage = async (ck: CanvasKit, url: string) => {
-		const buf = await fetch(url).then((r) => r.arrayBuffer());
-		const img = ck.MakeImageFromEncoded(new Uint8Array(buf));
-		return img;
 	};
 
-	// const scheduleDraw = () => {
-	// 	// Cancel any pending animation frame
-	// 	if (animationFrameId !== null) {
-	// 		cancelAnimationFrame(animationFrameId);
-	// 	}
-	// 	// Schedule draw for next frame
-	// 	animationFrameId = requestAnimationFrame(() => {
-	// 		animationFrameId = null;
-	// 		drawScene();
-	// 	});
-	// };
+	/**
+	 * Validates and cleans up selected shape index
+	 */
+	const validateSelectedShape = () => {
+		if (
+			selectedShapeIndex !== INVALID_INDEX &&
+			(selectedShapeIndex >= mock_data.length || !mock_data[selectedShapeIndex])
+		) {
+			selectedShapeIndex = INVALID_INDEX;
+			hoveredResizeCorner = null;
+		}
+	};
 
+	/**
+	 * Checks if a shape index is valid
+	 */
+	const isValidShapeIndex = (index: number): boolean => {
+		return index !== INVALID_INDEX && index < mock_data.length && mock_data[index] !== undefined;
+	};
+
+	/**
+	 * Clears hover state
+	 */
+	const clearHoverState = () => {
+		hoveredShapeIndex = INVALID_INDEX;
+		hoveredResizeCorner = null;
+		updateCursor();
+		scheduleDraw();
+	};
+
+	/**
+	 * Clears selection state
+	 */
+	const clearSelection = () => {
+		selectedShapeIndex = INVALID_INDEX;
+		hoveredResizeCorner = null;
+		resizingCorner = null;
+		resizeStartState = null;
+		scheduleDraw();
+	};
+
+
+	// ==================== Rendering ====================
+	
+	/**
+	 * Performance optimization: throttle draw calls using requestAnimationFrame
+	 */
+	const scheduleDraw = () => {
+		if (!needsRedraw) {
+			needsRedraw = true;
+			animationFrameId = requestAnimationFrame(() => {
+				needsRedraw = false;
+				drawScene();
+			});
+		}
+	};
+
+	// ==================== Camera Controls ====================
+	
+	/**
+	 * Handles camera panning
+	 */
 	const handlePanning = (event: MouseEvent) => {
-		// Get current mouse position relative to canvas
-		const rect = canvas.getBoundingClientRect();
-		const currentMouseX = event.clientX - rect.left;
-		const currentMouseY = event.clientY - rect.top;
-
-		// Calculate the delta (how much the mouse moved)
+		const { x: currentMouseX, y: currentMouseY } = getMousePosition(event, canvas);
 		const deltaX = currentMouseX - mouseState.lastMouseX;
 		const deltaY = currentMouseY - mouseState.lastMouseY;
 
-		// Update camera position by adding the delta
 		cameraState.panX += deltaX;
 		cameraState.panY += deltaY;
 
-		// Update last mouse position for next move event
 		mouseState.lastMouseX = currentMouseX;
 		mouseState.lastMouseY = currentMouseY;
 
-		drawScene();
+		scheduleDraw();
 	};
 
 	const drawScene = () => {
-		skCanvas?.clear(ck.Color(0, 0, 0, 1.0));
+		if (!skCanvas || !ck || !paints) return;
+		
+		skCanvas.clear(ck.Color(0, 0, 0, 1.0));
+		skCanvas.save();
 
-		skCanvas?.save();
+		skCanvas.translate(cameraState.panX, cameraState.panY);
+		skCanvas.scale(cameraState.zoom, cameraState.zoom);
+		
+		// Calculate visible viewport for culling
+		const viewport = calculateViewport(canvasWidth, canvasHeight, cameraState);
+		
+		// Draw background
+		drawBackground(skCanvas, ck, page, paints.background);
 
-		skCanvas?.translate(cameraState.panX, cameraState.panY);
-		skCanvas?.scale(cameraState.zoom, cameraState.zoom);
-		const paint = new ck.Paint();
-		paint.setColor(rgbaToCanvasKitColor(ck, page.backgroundColor));
-		const bg_x = -page.width / 2;
-		const bg_y = -page.height / 2;
-		const bg_width = page.width;
-		const bg_height = page.height;
-		skCanvas?.drawRect(ck.XYWHRect(bg_x, bg_y, bg_width, bg_height), paint);
-
-		// Draw other elements in world space
-		//
-		// paint.setColor(ck.Color(0, 0, 255, 1.0));
-		// skCanvas?.drawCircle(0, 0, 50, paint);
-		const imagePaint = new ck.Paint();
-		const borderPaint = new ck.Paint();
-		borderPaint.setStyle(ck.PaintStyle.Stroke);
-		borderPaint.setStrokeWidth(2);
-		borderPaint.setColor(ck.Color(255, 0, 0));
-		for (const im of mock_data) {
-			const src = ck.XYWHRect(0, 0, im.image.width(), im.image.height());
-			const dst = ck.XYWHRect(im.x, im.y, im.width, im.height);
-			skCanvas?.drawImageRect(im.image, src, dst, imagePaint);
+		// Only draw shapes that are visible in viewport (viewport culling)
+		for (const shape of mock_data) {
+			if (!shape.image) continue;
+			
+			// Viewport culling - skip if shape is completely outside viewport
+			if (!isRectVisible(shape.x, shape.y, shape.width, shape.height, viewport)) {
+				continue;
+			}
+			
+			const src = ck.XYWHRect(0, 0, shape.image.width(), shape.image.height());
+			const dst = ck.XYWHRect(shape.x, shape.y, shape.width, shape.height);
+			skCanvas.drawImageRect(shape.image, src, dst, paints.image);
 		}
 
-		const border = mock_data[0];
+		// Draw hover effect (only if not selected)
+		if (isValidShapeIndex(hoveredShapeIndex) && hoveredShapeIndex !== selectedShapeIndex) {
+			const hoveredShape = mock_data[hoveredShapeIndex];
+			drawHoverBorder(
+				skCanvas,
+				ck,
+				hoveredShape.x,
+				hoveredShape.y,
+				hoveredShape.width,
+				hoveredShape.height,
+				paints.hover,
+				cameraState.zoom
+			);
+		}
 
-		skCanvas?.drawRect(ck.XYWHRect(border.x, border.y, border.width, border.height), borderPaint);
+		// Validate and draw selected shape
+		validateSelectedShape();
+		if (isValidShapeIndex(selectedShapeIndex)) {
+			const selectedShape = mock_data[selectedShapeIndex];
+			drawSelectedBorder(
+				skCanvas,
+				ck,
+				selectedShape.x,
+				selectedShape.y,
+				selectedShape.width,
+				selectedShape.height,
+				paints.tool,
+				cameraState.zoom
+			);
+		}
 
-		skCanvas?.restore();
+		skCanvas.restore();
 		surface?.flush();
 	};
 
+	/**
+	 * Handles mouse wheel zoom
+	 */
 	const handleWheel = (event: WheelEvent) => {
 		event.preventDefault();
 
-		// Get mouse position relative to canvas
-		const rect = canvas.getBoundingClientRect();
-		const mouseX = event.clientX - rect.left;
-		const mouseY = event.clientY - rect.top;
-
-		// Calculate zoom factor (zoom in/out)
-		const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;
+		const { x: mouseX, y: mouseY } = getMousePosition(event, canvas);
+		const zoomFactor = event.deltaY > 0 ? ZOOM_OUT_FACTOR : ZOOM_IN_FACTOR;
 		const newZoom = Math.max(
 			MIN_CAMERA_ZOOM,
 			Math.min(MAX_CAMERA_ZOOM, cameraState.zoom * zoomFactor)
 		);
 
-		// Zoom towards mouse position
-		// Adjust pan to keep the point under mouse fixed
+		// Zoom towards mouse position - adjust pan to keep the point under mouse fixed
 		const zoomChange = newZoom / cameraState.zoom;
 		cameraState.panX = mouseX - (mouseX - cameraState.panX) * zoomChange;
 		cameraState.panY = mouseY - (mouseY - cameraState.panY) * zoomChange;
 
 		cameraState.zoom = newZoom;
-		// scheduleDraw();
-		drawScene();
+		scheduleDraw();
 	};
 
+	// ==================== Mouse Event Handlers ====================
+	
+	/**
+	 * Handles shape dragging
+	 */
+	const handleShapeDragging = (event: MouseEvent) => {
+		event.preventDefault();
+		
+		const { x: currentMouseX, y: currentMouseY } = getMousePosition(event, canvas);
+		const currentWorldPos = screenToWorld(currentMouseX, currentMouseY, cameraState);
+		const lastWorldPos = screenToWorld(mouseState.lastMouseX, mouseState.lastMouseY, cameraState);
+		
+		const deltaX = currentWorldPos.x - lastWorldPos.x;
+		const deltaY = currentWorldPos.y - lastWorldPos.y;
+		
+		const draggedShape = mock_data[hoveredShapeIndex];
+		draggedShape.x += deltaX;
+		draggedShape.y += deltaY;
+		
+		mouseState.lastMouseX = currentMouseX;
+		mouseState.lastMouseY = currentMouseY;
+		
+		updateCursor();
+		scheduleDraw();
+	};
+
+	// ==================== Resize Handlers ====================
+	
+	/**
+	 * Handles shape resizing while maintaining aspect ratio
+	 */
+	const handleShapeResizing = (event: MouseEvent) => {
+		if (!resizeStartState || !resizingCorner || !isValidShapeIndex(selectedShapeIndex)) {
+			return;
+		}
+
+		event.preventDefault();
+		
+		const { x: currentMouseX, y: currentMouseY } = getMousePosition(event, canvas);
+		const currentWorldPos = screenToWorld(currentMouseX, currentMouseY, cameraState);
+		const shape = mock_data[selectedShapeIndex];
+		const { shape: startShape, aspectRatio } = resizeStartState;
+
+		// Get anchor point (opposite corner)
+		const anchor = getAnchorPoint(resizingCorner, startShape);
+
+		// Calculate new dimensions maintaining aspect ratio
+		let { width: newWidth, height: newHeight } = calculateDimensionsFromAnchor(
+			anchor,
+			currentWorldPos,
+			aspectRatio
+		);
+
+		// Apply minimum size constraints
+		({ width: newWidth, height: newHeight } = applyMinSizeConstraints(
+			newWidth,
+			newHeight,
+			aspectRatio
+		));
+
+		// Calculate new position from anchor point
+		const { x: newX, y: newY } = calculatePositionFromAnchor(
+			resizingCorner,
+			anchor,
+			newWidth,
+			newHeight
+		);
+
+		// Update shape
+		shape.x = newX;
+		shape.y = newY;
+		shape.width = newWidth;
+		shape.height = newHeight;
+
+		mouseState.lastMouseX = currentMouseX;
+		mouseState.lastMouseY = currentMouseY;
+
+		scheduleDraw();
+	};
+
+	/**
+	 * Handles hover detection with throttling
+	 */
+	const handleHoverDetection = (event: MouseEvent) => {
+		if (hoverCheckTimeout !== null) {
+			return; // Skip if already scheduled
+		}
+
+		hoverCheckTimeout = window.setTimeout(() => {
+			hoverCheckTimeout = null;
+			
+			if (!editor) return;
+			
+			const { x, y } = getMousePosition(event, editor);
+			const worldPos = screenToWorld(x, y, cameraState);
+			
+			// First, check if mouse is over a resize corner of the selected shape
+			let newHoveredResizeCorner: ResizeCorner | null = null;
+			
+			if (isValidShapeIndex(selectedShapeIndex)) {
+				const selectedShape = mock_data[selectedShapeIndex];
+				newHoveredResizeCorner = getHoveredResizeCorner(worldPos, selectedShape, cameraState.zoom);
+			}
+			
+			// Only check for shape hover if not hovering over a resize corner
+			let newHoveredIndex = INVALID_INDEX;
+			if (newHoveredResizeCorner === null) {
+				newHoveredIndex = findShapeAtPoint(worldPos, mock_data);
+			}
+
+			// Update hover states if changed
+			let needsUpdate = false;
+			
+			if (newHoveredResizeCorner !== hoveredResizeCorner) {
+				hoveredResizeCorner = newHoveredResizeCorner;
+				needsUpdate = true;
+			}
+			
+			if (newHoveredIndex !== hoveredShapeIndex) {
+				hoveredShapeIndex = newHoveredIndex;
+				needsUpdate = true;
+			}
+
+			if (needsUpdate) {
+				updateCursor();
+				scheduleDraw();
+			}
+		}, HOVER_CHECK_DELAY);
+	};
+
+	/**
+	 * Handles mouse move events
+	 */
 	const handleMouseMove = (event: MouseEvent) => {
+		// Handle camera panning
 		if (cameraState.isPanning && mouseState.isMouseDown) {
 			event.preventDefault();
-			canvasCursor = 'grabbing';
+			updateCursor();
 			handlePanning(event);
+			return;
 		}
 
-		let r = editor?.getBoundingClientRect();
-		let x = event.clientX - r.left;
-		let y = event.clientY - r.top;
+		// Handle shape resizing (priority over dragging)
+		if (resizingCorner !== null && mouseState.isMouseDown) {
+			handleShapeResizing(event);
+			return;
+		}
 
-		console.log(x, y);
+		// Handle shape dragging
+		if (mouseState.isDragging && isValidShapeIndex(hoveredShapeIndex)) {
+			handleShapeDragging(event);
+			return;
+		}
+
+		// Handle hover detection
+		handleHoverDetection(event);
 	};
 
+	/**
+	 * Initializes mouse state for dragging
+	 */
+	const initializeMouseDrag = (x: number, y: number) => {
+		mouseState.isMouseDown = true;
+		mouseState.lastMouseX = x;
+		mouseState.lastMouseY = y;
+		updateCursor();
+	};
+
+	/**
+	 * Handles mouse down events
+	 */
 	const handleMouseDown = (event: MouseEvent) => {
 		event.preventDefault();
+		const { x, y } = getMousePosition(event, canvas);
 
 		if (cameraState.isPanning) {
-			mouseState.isMouseDown = true;
-
-			// Store the initial mouse position when starting to drag
-			const rect = canvas.getBoundingClientRect();
-			mouseState.lastMouseX = event.clientX - rect.left;
-			mouseState.lastMouseY = event.clientY - rect.top;
-
-			canvasCursor = 'grabbing';
+			initializeMouseDrag(x, y);
+			return; // Don't handle shape selection while panning
 		}
+
+		// Check if clicking on a resize corner
+		if (hoveredResizeCorner !== null && isValidShapeIndex(selectedShapeIndex)) {
+			const shape = mock_data[selectedShapeIndex];
+			const worldPos = screenToWorld(x, y, cameraState);
+			
+			// Initialize resize state
+			resizingCorner = hoveredResizeCorner;
+			resizeStartState = {
+				shape: { ...shape }, // Copy shape state
+				startMousePos: worldPos,
+				aspectRatio: shape.width / shape.height
+			};
+			
+			mouseState.isMouseDown = true;
+			mouseState.lastMouseX = x;
+			mouseState.lastMouseY = y;
+			updateCursor();
+			return;
+		}
+
+		// Handle shape selection/dragging
+		if (isValidShapeIndex(hoveredShapeIndex)) {
+			mouseState.isDragging = true;
+			initializeMouseDrag(x, y);
+			// Clear resize corner hover when selection changes
+			if (selectedShapeIndex !== hoveredShapeIndex) {
+				hoveredResizeCorner = null;
+			}
+			selectedShapeIndex = hoveredShapeIndex;
+		} else {
+			clearSelection();
+		}
+
+		scheduleDraw();
 	};
 
+	/**
+	 * Handles mouse up events
+	 */
 	const handleMouseUp = (event: MouseEvent) => {
 		if (mouseState.isMouseDown) {
 			event.preventDefault();
 			mouseState.isMouseDown = false;
-			if (cameraState.isPanning) {
-				canvasCursor = 'grab';
-			}
+			mouseState.isDragging = false;
+			resizingCorner = null;
+			resizeStartState = null;
+			updateCursor();
 		}
 	};
 
+	/**
+	 * Handles mouse leave events
+	 */
 	const handleMouseLeave = (event: MouseEvent) => {
-		// Stop dragging if mouse leaves canvas
 		if (mouseState.isMouseDown) {
 			mouseState.isMouseDown = false;
-			if (cameraState.isPanning) {
-				canvasCursor = 'grab';
-			}
+			mouseState.isDragging = false;
+			resizingCorner = null;
+			resizeStartState = null;
+			updateCursor();
 		}
+		
+		if (hoverCheckTimeout !== null) {
+			clearTimeout(hoverCheckTimeout);
+			hoverCheckTimeout = null;
+		}
+		
+		clearHoverState();
 	};
 
+	// ==================== Keyboard Event Handlers ====================
+	
+	/**
+	 * Checks if event should be ignored (e.g., typing in input field)
+	 */
+	const shouldIgnoreKeyboardEvent = (event: KeyboardEvent): boolean => {
+		return event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement;
+	};
+
+	/**
+	 * Handles key down events
+	 */
 	const handleKeyDown = (event: KeyboardEvent) => {
-		// Only handle if not typing in an input field
-		if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+		if (shouldIgnoreKeyboardEvent(event)) {
 			return;
 		}
 
 		if ((event.code === 'Space' || event.key === ' ') && !cameraState.isPanning) {
 			event.preventDefault();
 			cameraState.isPanning = true;
-			canvasCursor = 'grab';
+			updateCursor();
+		}
+
+		if (event.code === 'Escape' || event.key === 'Escape') {
+			clearSelection();
 		}
 	};
 
+	/**
+	 * Handles key up events
+	 */
 	const handleKeyUp = (event: KeyboardEvent) => {
 		if (event.code === 'Space' || event.key === ' ') {
 			event.preventDefault();
 			cameraState.isPanning = false;
-			canvasCursor = 'default';
+			updateCursor();
 		}
 	};
 
+	// ==================== Window Event Handlers ====================
+	
+	/**
+	 * Handles window resize events
+	 */
 	const handleResize = () => {
-		canvas.width = editor.clientWidth;
-		canvas.height = editor.clientHeight;
-
-		// Update the reactive variables so centerX and centerY recalculate
 		canvasWidth = editor.clientWidth;
 		canvasHeight = editor.clientHeight;
-
-		// Re-center the page after resize
-		// Wait for reactive update, then recalculate pan
-		drawScene();
+		canvas.width = canvasWidth;
+		canvas.height = canvasHeight;
+		scheduleDraw();
 	};
 
+	// ==================== Event Binding ====================
+	
+	/**
+	 * Binds all event listeners and returns cleanup function
+	 */
 	const bindEvents = () => {
+		// Window events
 		window.addEventListener('resize', handleResize);
+		window.addEventListener('mouseup', handleMouseUp);
+		window.addEventListener('keydown', handleKeyDown);
+		window.addEventListener('keyup', handleKeyUp);
 
-		// Zoom with mouse wheel
+		// Canvas events
 		canvas.addEventListener('wheel', handleWheel, { passive: false });
 		canvas.addEventListener('mousemove', handleMouseMove);
 		canvas.addEventListener('mousedown', handleMouseDown);
 		canvas.addEventListener('mouseup', handleMouseUp);
 		canvas.addEventListener('mouseleave', handleMouseLeave);
 
-		// Also listen for mouseup on window in case mouse is released outside canvas
-		window.addEventListener('mouseup', handleMouseUp);
-
-		// Pan with keyboard - attach to window so it works globally
-		window.addEventListener('keydown', handleKeyDown);
-		window.addEventListener('keyup', handleKeyUp);
-
 		// Return cleanup function
 		return () => {
 			window.removeEventListener('resize', handleResize);
-			canvas.removeEventListener('wheel', handleWheel);
+			window.removeEventListener('mouseup', handleMouseUp);
 			window.removeEventListener('keydown', handleKeyDown);
 			window.removeEventListener('keyup', handleKeyUp);
+			canvas.removeEventListener('wheel', handleWheel);
 			canvas.removeEventListener('mousemove', handleMouseMove);
 			canvas.removeEventListener('mousedown', handleMouseDown);
 			canvas.removeEventListener('mouseup', handleMouseUp);
 			canvas.removeEventListener('mouseleave', handleMouseLeave);
-			window.removeEventListener('mouseup', handleMouseUp);
 		};
 	};
 </script>
@@ -343,7 +746,11 @@
 <div class="flex">
 	<div class="w-[200px]"></div>
 
-	<div class="editor w-full h-screen overflow-hidden cursor-{canvasCursor}" bind:this={editor}>
+	<div
+		class="editor w-full h-screen overflow-hidden"
+		style="cursor: {canvasCursor}"
+		bind:this={editor}
+	>
 		<canvas id="canvas" bind:this={canvas}></canvas>
 	</div>
 </div>
