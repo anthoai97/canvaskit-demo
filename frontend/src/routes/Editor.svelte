@@ -32,6 +32,7 @@
 		applyMinSizeConstraints,
 		type ResizeCorner
 	} from '$lib/utils/resize';
+	import { StableWebSocket } from '$lib/ws';
 
 	let editor: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
@@ -175,6 +176,22 @@
 		}
 	];
 
+	// ==================== WebSocket state ====================
+	let ws: StableWebSocket | null = null;
+	let wsMessages: string[] = [];
+
+	const setupWebSocket = () => {
+		ws = new StableWebSocket();
+
+		ws.addMessageListener((event) => {
+			wsMessages = [...wsMessages.slice(-19), event.data];
+		});
+	};
+
+	const sendTestMessage = () => {
+		ws?.send(`hello from editor at ${new Date().toLocaleTimeString()}`);
+	};
+
 	onMount(async () => {
 		canvasWidth = editor.clientWidth;
 		canvasHeight = editor.clientHeight;
@@ -198,10 +215,14 @@
 
 		cleanupEvents = bindEvents();
 		drawScene();
+
+		// Setup WebSocket connection for collaborative messaging / presence.
+		setupWebSocket();
 	});
 
 	onDestroy(() => {
 		cleanupEvents?.();
+		ws?.close();
 		
 		if (animationFrameId !== null) {
 			cancelAnimationFrame(animationFrameId);
@@ -744,7 +765,25 @@
 </script>
 
 <div class="flex">
-	<div class="w-[200px]"></div>
+	<div class="w-[260px] p-4 space-y-2 text-sm bg-zinc-900 text-zinc-100">
+		<div class="font-semibold">WebSocket debug</div>
+		<button
+			class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-xs"
+			on:click={sendTestMessage}
+		>
+			Send test message
+		</button>
+
+		<div class="mt-2 max-h-64 overflow-auto rounded bg-black/40 p-2 text-[11px] leading-snug">
+			{#if wsMessages.length === 0}
+				<div class="text-zinc-500">No messages yet</div>
+			{:else}
+				{#each wsMessages as m, i (i)}
+					<div>{m}</div>
+				{/each}
+			{/if}
+		</div>
+	</div>
 
 	<div
 		class="editor w-full h-screen overflow-hidden"
