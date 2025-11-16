@@ -19,7 +19,7 @@ export interface PaintObjects {
  */
 export const createPaints = (ck: CanvasKit, page: EditorPage): PaintObjects => {
 	const backgroundPaint = new ck.Paint();
-	backgroundPaint.setColor(rgbaToCanvasKitColor(ck, page.backgroundColor));
+	backgroundPaint.setColor(rgbaToCanvasKitColor(ck, page.background.color));
 
 	const imagePaint = new ck.Paint();
 

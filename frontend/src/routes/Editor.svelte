@@ -6,7 +6,7 @@
 		drawHoverBorder,
 		drawSelectedBorder
 	} from '$lib/canvakit/drawing';
-	import { loadImageBinary } from '$lib/canvakit/image';
+	import { loadImageBinary, drawImageShape } from '$lib/canvakit/image';
 	import {
 		CURSOR_GRAB,
 		CURSOR_GRABBING,
@@ -44,8 +44,10 @@
 	} from '$lib/utils/shape-operations';
 	import { getShapeCenter } from '$lib/utils/transform';
 	import { calculateViewport, isRectVisible } from '$lib/utils/viewport';
-	import type { Canvas, CanvasKit, Paint, Surface } from 'canvaskit-wasm';
+	import type { Canvas, CanvasKit, Paint, Surface, FontMgr } from 'canvaskit-wasm';
 	import { onDestroy, onMount, tick } from 'svelte';
+	import { loadFonts, preloadFonts } from '$lib/canvakit/font';
+	import { drawTextShape } from '$lib/canvakit/text';
 
 	let editor: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
@@ -53,6 +55,7 @@
 
 	let canvasWidth: number;
 	let canvasHeight: number;
+	let devicePixelRatioValue = 1;
 
 	// UI state
 	let canvasCursor = CURSOR_DEFAULT;
@@ -80,11 +83,14 @@
 
 	let surface: Surface | null = null;
 	let skCanvas: Canvas | null = null;
+	let fontMgr: FontMgr | null = null;
 
 	let page: EditorPage = {
 		width: 1920,
 		height: 1080,
-		backgroundColor: { r: 255, g: 255, b: 255, a: 1.0 }
+		background: {
+			color: { r: 255, g: 255, b: 255, a: 1.0 }
+		}
 	};
 
 	let cameraState: CameraState = {
@@ -148,13 +154,13 @@
 		},
 		{
 			kind: 'text',
-			x: 100,
-			y: 100,
-			width: 100,
-			height: 100,
-			text: 'Hello, world!',
-			fontSize: 20,
-			fontFamily: 'Arial',
+			x: -150,
+			y: -100,
+			width: 400,
+			height: 180,
+			text: 'This is a test of the text shape.\nThis is a second line of text.\nThis is a third line of text.',
+			fontSize: 30,
+			fontFamily: 'Noto Sans',
 			fontWeight: 400,
 			fontStyle: 'normal',
 			fontColor: '#000000',
@@ -237,8 +243,13 @@
 	onMount(async () => {
 		canvasWidth = editor.clientWidth;
 		canvasHeight = editor.clientHeight;
-		canvas.width = editor.clientWidth;
-		canvas.height = editor.clientHeight;
+
+		// Handle HiDPI / Retina displays to keep rendering (especially text) sharp
+		devicePixelRatioValue = window.devicePixelRatio || 1;
+		canvas.style.width = `${canvasWidth}px`;
+		canvas.style.height = `${canvasHeight}px`;
+		canvas.width = canvasWidth * devicePixelRatioValue;
+		canvas.height = canvasHeight * devicePixelRatioValue;
 
 		// Wait for reactive statements to update
 		await tick();
@@ -247,6 +258,10 @@
 		cameraState.panY = centerY;
 
 		ck = await initCanvasKit();
+
+		// Start loading font data and build a FontMgr for Paragraph / text rendering
+		preloadFonts();
+		fontMgr = await loadFonts(ck);
 
 		surface = createWebGLSurface(ck, canvas);
 		skCanvas = surface?.getCanvas() ?? null;
@@ -393,109 +408,88 @@
 		scheduleDraw();
 	};
 
-	const drawScene = () => {
-		if (!skCanvas || !ck || !paints || !lowOpacityPaint || !pageBounds) return;
+	// Draws the selected shape preview (full image at low opacity, outside page bounds).
+	const drawSelectedShapePreview = () => {
+		if (!skCanvas || !ck || !lowOpacityPaint) return;
 
-		skCanvas.clear(ck.Color(0, 0, 0, 1.0));
-		skCanvas.save();
-
-		skCanvas.translate(cameraState.panX, cameraState.panY);
-		skCanvas.scale(cameraState.zoom, cameraState.zoom);
-
-		// Calculate visible viewport for culling
-		const viewport = calculateViewport(canvasWidth, canvasHeight, cameraState);
-
-		// Draw background
-		drawBackground(skCanvas, ck, page, paints.background);
-
-		// Validate selected shape before drawing
-		validateSelectedShape();
-
-		// Cache selected shape data to avoid repeated lookups
 		const selectedIndex = selectedShape.index;
 		const hasSelectedShape = isValidShapeIndex(selectedIndex);
-		let selectedShapeData: Shape | null = null;
-		let selectedShapeCenter: { x: number; y: number } | null = null;
+		if (!hasSelectedShape) return;
 
-		// If a shape is selected, draw its entire shape with low opacity first
-		// This will show parts outside page bounds with low opacity
-		if (hasSelectedShape) {
-			selectedShapeData = mock_data[selectedIndex];
-			if (selectedShapeData.kind === 'image' && selectedShapeData.image) {
-				// Cache shape center if rotation is needed
-				if (selectedShapeData.rotate !== null && selectedShapeData.rotate !== 0) {
-					selectedShapeCenter = getShapeCenter(selectedShapeData);
-				}
+		const shape = mock_data[selectedIndex];
+		if (shape.kind !== 'image' || !shape.image) return;
 
-				// Save canvas state
-				skCanvas.save();
-
-				// Apply rotation if the shape has one
-				if (selectedShapeCenter) {
-					skCanvas.rotate(selectedShapeData.rotate!, selectedShapeCenter.x, selectedShapeCenter.y);
-				}
-
-				// Draw the entire selected shape with low opacity (no clipping)
-				const src = ck.XYWHRect(
-					0,
-					0,
-					selectedShapeData.image.width(),
-					selectedShapeData.image.height()
-				);
-				const dst = ck.XYWHRect(
-					selectedShapeData.x,
-					selectedShapeData.y,
-					selectedShapeData.width,
-					selectedShapeData.height
-				);
-				skCanvas.drawImageRect(selectedShapeData.image, src, dst, lowOpacityPaint);
-
-				// Restore canvas state
-				skCanvas.restore();
-			}
+		let center: { x: number; y: number } | null = null;
+		if (shape.rotate !== null && shape.rotate !== 0) {
+			center = getShapeCenter(shape);
 		}
 
-		// Clip images to page bounds (central layout)
+		skCanvas.save();
+		if (center) {
+			skCanvas.rotate(shape.rotate!, center.x, center.y);
+		}
+
+		const src = ck.XYWHRect(0, 0, shape.image.width(), shape.image.height());
+		const dst = ck.XYWHRect(shape.x, shape.y, shape.width, shape.height);
+		skCanvas.drawImageRect(shape.image, src, dst, lowOpacityPaint);
+
+		skCanvas.restore();
+	};
+
+	// Draws all shapes (images and text) within the page clip.
+	const drawAllShapes = (viewport: ReturnType<typeof calculateViewport>) => {
+		if (!skCanvas || !ck || !paints || !pageBounds || !fontMgr) return;
+
+		// Clip to page bounds
 		skCanvas.save();
 		skCanvas.clipRect(pageBounds, ck.ClipOp.Intersect, true);
 
-		// Draw all shapes in their original z-order (including selected shape)
-		// This maintains the correct layering without moving selected shape to top
 		for (let i = 0; i < mock_data.length; i++) {
 			const shape = mock_data[i];
-			if (shape.kind !== 'image' || !shape.image) continue;
 
 			// Viewport culling - skip if shape is completely outside viewport
 			if (!isRectVisible(shape.x, shape.y, shape.width, shape.height, viewport)) {
 				continue;
 			}
 
-			// Save canvas state before applying shape-specific transforms
-			skCanvas.save();
+			// Images
+			if (shape.kind === 'image') {
+				if (!shape.image) continue;
 
-			// Apply rotation if the shape has one
-			if (shape.rotate !== null && shape.rotate !== 0) {
-				const center = getShapeCenter(shape);
-				skCanvas.rotate(shape.rotate, center.x, center.y);
+				skCanvas.save();
+				if (shape.rotate !== null && shape.rotate !== 0) {
+					const center = getShapeCenter(shape);
+					skCanvas.rotate(shape.rotate, center.x, center.y);
+				}
+
+				drawImageShape(ck, skCanvas, shape, paints.image);
+				skCanvas.restore();
 			}
 
-			const src = ck.XYWHRect(0, 0, shape.image.width(), shape.image.height());
-			const dst = ck.XYWHRect(shape.x, shape.y, shape.width, shape.height);
-			skCanvas.drawImageRect(shape.image, src, dst, paints.image);
-
-			// Restore canvas state to reset rotation for next shape
-			skCanvas.restore();
+			// Text
+			if (shape.kind === 'text') {
+				skCanvas.save();
+				if (shape.rotate !== null && shape.rotate !== 0) {
+					const center = getShapeCenter(shape);
+					skCanvas.rotate(shape.rotate, center.x, center.y);
+				}
+				drawTextShape(ck, skCanvas, fontMgr, shape);
+				skCanvas.restore();
+			}
 		}
 
 		// Restore clipping so borders can extend beyond page bounds if needed
 		skCanvas.restore();
+	};
 
-		// Draw borders on top of all shapes (with rotation applied)
-		// Draw hover effect (only if not selected)
+	// Draws hover and selection borders on top of all shapes.
+	const drawShapeOverlays = () => {
+		if (!skCanvas || !ck || !paints) return;
+
+		// Hover border (when not selected)
 		if (isValidShapeIndex(hoverState.shapeIndex) && hoverState.shapeIndex !== selectedShape.index) {
 			const hoveredShape = mock_data[hoverState.shapeIndex];
 
-			// Save canvas state and apply rotation
 			skCanvas.save();
 			if (hoveredShape.rotate !== null && hoveredShape.rotate !== 0) {
 				const center = getShapeCenter(hoveredShape);
@@ -516,27 +510,67 @@
 			skCanvas.restore();
 		}
 
-		// Draw selected border on top
-		if (hasSelectedShape && selectedShape.rendered === false && selectedShapeData) {
-			// Reuse cached selectedShapeData and selectedShapeCenter
-			skCanvas.save();
-			if (selectedShapeCenter) {
-				skCanvas.rotate(selectedShapeData.rotate!, selectedShapeCenter.x, selectedShapeCenter.y);
-			}
+		// Selected border
+		const selectedIndex = selectedShape.index;
+		const hasSelectedShape = isValidShapeIndex(selectedIndex);
+		if (!hasSelectedShape || selectedShape.rendered === true) return;
 
-			drawSelectedBorder(
-				skCanvas,
-				ck,
-				selectedShapeData.x,
-				selectedShapeData.y,
-				selectedShapeData.width,
-				selectedShapeData.height,
-				paints.tool,
-				cameraState.zoom
-			);
+		const shape = mock_data[selectedIndex];
+		let center: { x: number; y: number } | null = null;
 
-			skCanvas.restore();
+		if (shape.rotate !== null && shape.rotate !== 0) {
+			center = getShapeCenter(shape);
 		}
+
+		skCanvas.save();
+		if (center) {
+			skCanvas.rotate(shape.rotate!, center.x, center.y);
+		}
+
+		drawSelectedBorder(
+			skCanvas,
+			ck,
+			shape.x,
+			shape.y,
+			shape.width,
+			shape.height,
+			paints.tool,
+			cameraState.zoom
+		);
+
+		skCanvas.restore();
+	};
+
+	const drawScene = () => {
+		if (!skCanvas || !ck || !paints || !lowOpacityPaint || !pageBounds || !fontMgr) return;
+
+		skCanvas.clear(ck.Color(0, 0, 0, 1.0));
+		skCanvas.save();
+
+		// First scale by devicePixelRatio so all world/screen math can stay in CSS pixels
+		skCanvas.scale(devicePixelRatioValue, devicePixelRatioValue);
+
+		// Then apply camera pan/zoom in logical (CSS) pixels
+		skCanvas.translate(cameraState.panX, cameraState.panY);
+		skCanvas.scale(cameraState.zoom, cameraState.zoom);
+
+		// Calculate visible viewport for culling
+		const viewport = calculateViewport(canvasWidth, canvasHeight, cameraState);
+
+		// Draw background
+		drawBackground(skCanvas, ck, page, paints.background);
+
+		// Validate selected shape before drawing
+		validateSelectedShape();
+
+		// Draw selected shape preview (full image with low opacity)
+		drawSelectedShapePreview();
+
+		// Draw all shapes inside page bounds
+		drawAllShapes(viewport);
+
+		// Draw hover + selection borders on top
+		drawShapeOverlays();
 
 		skCanvas.restore();
 		surface?.flush();
@@ -887,8 +921,23 @@
 	const handleResize = () => {
 		canvasWidth = editor.clientWidth;
 		canvasHeight = editor.clientHeight;
-		canvas.width = canvasWidth;
-		canvas.height = canvasHeight;
+
+		// Recompute DPR on resize in case the window moved between screens
+		devicePixelRatioValue = window.devicePixelRatio || 1;
+
+		canvas.style.width = `${canvasWidth}px`;
+		canvas.style.height = `${canvasHeight}px`;
+		canvas.width = canvasWidth * devicePixelRatioValue;
+		canvas.height = canvasHeight * devicePixelRatioValue;
+
+		// Inform CanvasKit surface about the new backing-store size (typed as any because resize is not in TS defs)
+		if (surface) {
+			(surface as any).resize(
+				canvasWidth * devicePixelRatioValue,
+				canvasHeight * devicePixelRatioValue
+			);
+		}
+
 		scheduleDraw();
 	};
 

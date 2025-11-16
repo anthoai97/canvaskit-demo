@@ -39,6 +39,7 @@
 		"vite": "^7.1.10"
 	},
 	"dependencies": {
+		"@fontsource-variable/noto-sans": "^5.2.10",
 		"canvaskit-wasm": "^0.40.0"
 	}
 }

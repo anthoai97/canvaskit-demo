@@ -1,4 +1,5 @@
-import type { CanvasKit, Image } from 'canvaskit-wasm';
+import type { Canvas, CanvasKit, Image, Paint } from 'canvaskit-wasm';
+import type { ImageShape } from '$lib/types/shape';
 
 /**
  * Loads an image from a URL using CanvasKit
@@ -57,4 +58,21 @@ export async function loadImageBinary<
 	}
 	return result;
 }
+
+/**
+ * Draws a single image shape on the given canvas.
+ * Rotation and clipping are expected to be handled by the caller.
+ */
+export const drawImageShape = (
+	ck: CanvasKit,
+	canvas: Canvas,
+	shape: ImageShape,
+	paint: Paint
+): void => {
+	if (!shape.image) return;
+
+	const src = ck.XYWHRect(0, 0, shape.image.width(), shape.image.height());
+	const dst = ck.XYWHRect(shape.x, shape.y, shape.width, shape.height);
+	canvas.drawImageRect(shape.image, src, dst, paint);
+};
 

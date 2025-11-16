@@ -35,3 +35,41 @@ export const CURSOR_DEFAULT = 'default';
 export const CURSOR_POINTER = 'pointer';
 export const CURSOR_GRAB = 'grab';
 export const CURSOR_GRABBING = 'grabbing';
+
+
+export type FontDescription = {
+  runtimeFileName: string;
+  fontName: string;
+};
+
+export const fonts: FontDescription[] = [
+  // {
+  //   filePath: "node_modules/@fontsource/inter/files/inter-all-400-normal.woff",
+  //   runtimeFileName: "inter-regular.woff",
+  //   fontName: "Inter",
+  // },
+  {
+    runtimeFileName: "noto-sans-latin-standard-normal.woff2",
+    fontName: "Noto Sans",
+  },
+  // {
+  //   filePath:
+  //     "node_modules/@fontsource/noto-sans-jp/files/noto-sans-jp-japanese-400-normal.woff",
+  //   runtimeFileName: "noto-sans-jp-regular.woff",
+  //   fontName: "Noto Sans JP",
+  // },
+  // {
+  //   filePath:
+  //     "vendors/noto-sans-hebrew/instance_ttf/NotoSansHebrew-Regular.ttf",
+  //   runtimeFileName: "noto-sans-hebrew-regular.ttf",
+  //   fontName: "Noto Sans Hebrew",
+  // },
+  // {
+  //   filePath:
+  //     "node_modules/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff2",
+  //   runtimeFileName: "noto-sans-sc-regular.woff2",
+  //   fontName: "Noto Sans SC",
+  // }
+];
+
+export const fontFamilies = fonts.map((x) => x.fontName);
