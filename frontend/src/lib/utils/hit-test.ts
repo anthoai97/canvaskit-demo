@@ -1,6 +1,8 @@
+import type { Point } from './transform';
+
 /**
  * Checks if a point is inside a rectangle
- * @param point - Point coordinates {x, y}
+ * @param point - Point coordinates
  * @param x - Rectangle X position
  * @param y - Rectangle Y position
  * @param width - Rectangle width
@@ -8,7 +10,7 @@
  * @returns True if point is inside rectangle
  */
 export const isPointInRect = (
-	point: { x: number; y: number },
+	point: Point,
 	x: number,
 	y: number,
 	width: number,
@@ -24,14 +26,14 @@ export const isPointInRect = (
 
 /**
  * Checks if a point is inside a circle
- * @param point - Point coordinates {x, y}
+ * @param point - Point coordinates
  * @param centerX - Circle center X position
  * @param centerY - Circle center Y position
  * @param radius - Circle radius
  * @returns True if point is inside circle
  */
 export const isPointInCircle = (
-	point: { x: number; y: number },
+	point: Point,
 	centerX: number,
 	centerY: number,
 	radius: number
@@ -49,7 +51,7 @@ export const isPointInCircle = (
  * @returns Index of the shape at the point, or -1 if none
  */
 export const findShapeAtPoint = <T extends { x: number; y: number; width: number; height: number }>(
-	point: { x: number; y: number },
+	point: Point,
 	shapes: T[]
 ): number => {
 	// Check in reverse order for top-most first

@@ -1,37 +1,50 @@
 <script lang="ts">
-	import { onMount, onDestroy, tick } from 'svelte';
-	import type { Canvas, CanvasKit, Surface } from 'canvaskit-wasm';
-	import type { EditorPage } from '$lib/types/page';
+	import { createWebGLSurface, initCanvasKit } from '$lib/canvakit/canvas';
 	import {
+		createPaints,
+		drawBackground,
+		drawHoverBorder,
+		drawSelectedBorder
+	} from '$lib/canvakit/drawing';
+	import { loadImageBinary } from '$lib/canvakit/image';
+	import {
+		CURSOR_GRAB,
+		CURSOR_GRABBING,
 		DEFAULT_CAMERA_ZOOM,
-		MIN_CAMERA_ZOOM,
-		MAX_CAMERA_ZOOM,
 		HOVER_CHECK_DELAY,
 		INVALID_INDEX,
+		MAX_CAMERA_ZOOM,
+		MIN_CAMERA_ZOOM,
 		ZOOM_IN_FACTOR,
-		ZOOM_OUT_FACTOR,
-		CURSOR_DEFAULT,
-		CURSOR_POINTER,
-		CURSOR_GRAB,
-		CURSOR_GRABBING
+		ZOOM_OUT_FACTOR
 	} from '$lib/contants/const';
 	import type { CameraState } from '$lib/types/camera';
-	import type { MouseState } from '$lib/types/mouse';
-	import type { Shape } from '$lib/types/shape';
-	import { initCanvasKit, createWebGLSurface } from '$lib/canvakit/canvas';
-	import { loadImageBinary } from '$lib/canvakit/image';
-	import { createPaints, drawBackground, drawHoverBorder, drawSelectedBorder } from '$lib/canvakit/drawing';
-	import { screenToWorld, getMousePosition } from '$lib/utils/coordinates';
-	import { calculateViewport, isRectVisible } from '$lib/utils/viewport';
-	import { findShapeAtPoint } from '$lib/utils/hit-test';
 	import {
-		getHoveredResizeCorner,
-		getAnchorPoint,
-		calculateDimensionsFromAnchor,
-		calculatePositionFromAnchor,
-		applyMinSizeConstraints,
-		type ResizeCorner
-	} from '$lib/utils/resize';
+		createSelectedShape,
+		resetSelectedShape,
+		type ResizeState,
+		type RotationState,
+		type SelectedShape
+	} from '$lib/types/editor';
+	import type { MouseState } from '$lib/types/mouse';
+	import type { EditorPage } from '$lib/types/page';
+	import type { Shape } from '$lib/types/shape';
+	import { getMousePosition, screenToWorld } from '$lib/utils/coordinates';
+	import { CURSOR_DEFAULT, getCursorStyle } from '$lib/utils/cursor';
+	import { findShapeAtPoint } from '$lib/utils/hit-test';
+	import { detectHover, updateHoverState } from '$lib/utils/hover-detection';
+	import { createHoverState, resetHoverState, type HoverState } from '$lib/utils/hover-state';
+	import { getCornerDirection, type ResizeCorner } from '$lib/utils/resize';
+	import {
+		calculateResize,
+		calculateRotation,
+		initializeResize,
+		initializeRotation
+	} from '$lib/utils/shape-operations';
+	import { getShapeCenter } from '$lib/utils/transform';
+	import { calculateViewport, isRectVisible } from '$lib/utils/viewport';
+	import type { Canvas, CanvasKit, Paint, Surface } from 'canvaskit-wasm';
+	import { onDestroy, onMount, tick } from 'svelte';
 
 	let editor: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
@@ -42,20 +55,16 @@
 
 	// UI state
 	let canvasCursor = CURSOR_DEFAULT;
-	let hoveredShapeIndex = INVALID_INDEX;
-	let selectedShapeIndex = INVALID_INDEX;
-	let hoveredResizeCorner: ResizeCorner | null = null;
+	let hoverState: HoverState = createHoverState();
+	let selectedShape: SelectedShape = createSelectedShape();
 	let resizingCorner: ResizeCorner | null = null;
-	
-	// Resize state - stores initial shape state when resize starts
-	let resizeStartState: {
-		shape: Shape;
-		startMousePos: { x: number; y: number };
-		aspectRatio: number;
-	} | null = null;
+	let resizeStartState: ResizeState | null = null;
+	let rotationStartState: RotationState | null = null;
 
 	// Paint objects (reused for performance)
 	let paints: ReturnType<typeof createPaints> | null = null;
+	let lowOpacityPaint: Paint | null = null;
+	let pageBounds: Float32Array | null = null;
 
 	// Performance optimization: requestAnimationFrame throttling
 	let animationFrameId: number | null = null;
@@ -99,7 +108,8 @@
 			height: 200,
 			ratio: 0,
 			url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
-			image: null
+			image: null,
+			rotate: null
 		},
 		{
 			x: -600,
@@ -108,7 +118,8 @@
 			height: 300,
 			ratio: 0,
 			url: 'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=800',
-			image: null
+			image: null,
+			rotate: null
 		},
 		{
 			x: 300,
@@ -117,7 +128,8 @@
 			height: 180,
 			ratio: 0,
 			url: 'https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800',
-			image: null
+			image: null,
+			rotate: null
 		},
 		{
 			x: -200,
@@ -126,7 +138,8 @@
 			height: 250,
 			ratio: 0,
 			url: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=800',
-			image: null
+			image: null,
+			rotate: null
 		},
 		{
 			x: 500,
@@ -135,7 +148,8 @@
 			height: 150,
 			ratio: 0,
 			url: 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800',
-			image: null
+			image: null,
+			rotate: null
 		},
 		{
 			x: -300,
@@ -144,7 +158,8 @@
 			height: 200,
 			ratio: 0,
 			url: 'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=800',
-			image: null
+			image: null,
+			rotate: null
 		},
 		{
 			x: 100,
@@ -153,7 +168,8 @@
 			height: 240,
 			ratio: 0,
 			url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800',
-			image: null
+			image: null,
+			rotate: null
 		},
 		{
 			x: -500,
@@ -162,7 +178,8 @@
 			height: 180,
 			ratio: 0,
 			url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
-			image: null
+			image: null,
+			rotate: null
 		},
 		{
 			x: 600,
@@ -171,7 +188,8 @@
 			height: 300,
 			ratio: 0,
 			url: 'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=800',
-			image: null
+			image: null,
+			rotate: null
 		}
 	];
 
@@ -196,53 +214,63 @@
 
 		paints = createPaints(ck, page);
 
+		// Initialize cached paint and bounds for performance
+		lowOpacityPaint = new ck.Paint();
+		lowOpacityPaint.setAlphaf(0.5); // 50% opacity
+		pageBounds = ck.XYWHRect(-page.width / 2, -page.height / 2, page.width, page.height);
+
 		cleanupEvents = bindEvents();
 		drawScene();
 	});
 
 	onDestroy(() => {
 		cleanupEvents?.();
-		
+
 		if (animationFrameId !== null) {
 			cancelAnimationFrame(animationFrameId);
 		}
-		
+
 		if (hoverCheckTimeout !== null) {
 			clearTimeout(hoverCheckTimeout);
 		}
 
-		selectedShapeIndex = INVALID_INDEX;
-		hoveredShapeIndex = INVALID_INDEX;
-		hoveredResizeCorner = null;
+		resetSelectedShape(selectedShape);
+		resetHoverState(hoverState);
 		resizingCorner = null;
 		resizeStartState = null;
+		rotationStartState = null;
 	});
 
 	// ==================== Helper Functions ====================
-	
+
 	/**
 	 * Updates cursor style based on current state
 	 */
 	const updateCursor = () => {
-		if (cameraState.isPanning) {
+		// If hovering over rotate circle of selected shape, use grab cursor
+		if (hoverState.isHoveringRotateCircle && isValidShapeIndex(selectedShape.index)) {
 			canvasCursor = mouseState.isMouseDown ? CURSOR_GRABBING : CURSOR_GRAB;
-		} else if (hoveredResizeCorner !== null) {
-			// Set resize cursors based on corner position
-			switch (hoveredResizeCorner) {
-				case 'top-left':
-				case 'bottom-right':
-					canvasCursor = 'nwse-resize';
-					break;
-				case 'top-right':
-				case 'bottom-left':
-					canvasCursor = 'nesw-resize';
-					break;
-			}
-		} else if (hoveredShapeIndex !== INVALID_INDEX) {
-			canvasCursor = mouseState.isDragging ? CURSOR_GRABBING : CURSOR_POINTER;
-		} else {
-			canvasCursor = CURSOR_DEFAULT;
+			return;
 		}
+
+		let resizeDirection: ReturnType<typeof getCornerDirection> | null = null;
+		let rotation: number | null = null;
+
+		if (hoverState.resizeCorner !== null && isValidShapeIndex(selectedShape.index)) {
+			const selectedShapeData = mock_data[selectedShape.index];
+			rotation = selectedShapeData.rotate ?? null;
+			resizeDirection = getCornerDirection(hoverState.resizeCorner, selectedShapeData, rotation);
+		}
+
+		canvasCursor = getCursorStyle({
+			isPanning: cameraState.isPanning,
+			isMouseDown: mouseState.isMouseDown,
+			isDragging: mouseState.isDragging,
+			hoveredResizeCorner: hoverState.resizeCorner,
+			resizeDirection,
+			hasHoveredShape: hoverState.shapeIndex !== INVALID_INDEX,
+			rotation
+		});
 	};
 
 	/**
@@ -250,11 +278,11 @@
 	 */
 	const validateSelectedShape = () => {
 		if (
-			selectedShapeIndex !== INVALID_INDEX &&
-			(selectedShapeIndex >= mock_data.length || !mock_data[selectedShapeIndex])
+			selectedShape.index !== INVALID_INDEX &&
+			(selectedShape.index >= mock_data.length || !mock_data[selectedShape.index])
 		) {
-			selectedShapeIndex = INVALID_INDEX;
-			hoveredResizeCorner = null;
+			resetSelectedShape(selectedShape);
+			resetHoverState(hoverState);
 		}
 	};
 
@@ -269,8 +297,7 @@
 	 * Clears hover state
 	 */
 	const clearHoverState = () => {
-		hoveredShapeIndex = INVALID_INDEX;
-		hoveredResizeCorner = null;
+		resetHoverState(hoverState);
 		updateCursor();
 		scheduleDraw();
 	};
@@ -279,16 +306,16 @@
 	 * Clears selection state
 	 */
 	const clearSelection = () => {
-		selectedShapeIndex = INVALID_INDEX;
-		hoveredResizeCorner = null;
+		resetSelectedShape(selectedShape);
+		resetHoverState(hoverState);
 		resizingCorner = null;
 		resizeStartState = null;
+		rotationStartState = null;
 		scheduleDraw();
 	};
 
-
 	// ==================== Rendering ====================
-	
+
 	/**
 	 * Performance optimization: throttle draw calls using requestAnimationFrame
 	 */
@@ -303,7 +330,7 @@
 	};
 
 	// ==================== Camera Controls ====================
-	
+
 	/**
 	 * Handles camera panning
 	 */
@@ -322,37 +349,104 @@
 	};
 
 	const drawScene = () => {
-		if (!skCanvas || !ck || !paints) return;
-		
+		if (!skCanvas || !ck || !paints || !lowOpacityPaint || !pageBounds) return;
+
 		skCanvas.clear(ck.Color(0, 0, 0, 1.0));
 		skCanvas.save();
 
 		skCanvas.translate(cameraState.panX, cameraState.panY);
 		skCanvas.scale(cameraState.zoom, cameraState.zoom);
-		
+
 		// Calculate visible viewport for culling
 		const viewport = calculateViewport(canvasWidth, canvasHeight, cameraState);
-		
+
 		// Draw background
 		drawBackground(skCanvas, ck, page, paints.background);
 
-		// Only draw shapes that are visible in viewport (viewport culling)
-		for (const shape of mock_data) {
+		// Validate selected shape before drawing
+		validateSelectedShape();
+
+		// Cache selected shape data to avoid repeated lookups
+		const selectedIndex = selectedShape.index;
+		const hasSelectedShape = isValidShapeIndex(selectedIndex);
+		let selectedShapeData: Shape | null = null;
+		let selectedShapeCenter: { x: number; y: number } | null = null;
+
+		// If a shape is selected, draw its entire shape with low opacity first
+		// This will show parts outside page bounds with low opacity
+		if (hasSelectedShape) {
+			selectedShapeData = mock_data[selectedIndex];
+			if (selectedShapeData.image) {
+				// Cache shape center if rotation is needed
+				if (selectedShapeData.rotate !== null && selectedShapeData.rotate !== 0) {
+					selectedShapeCenter = getShapeCenter(selectedShapeData);
+				}
+
+				// Save canvas state
+				skCanvas.save();
+
+				// Apply rotation if the shape has one
+				if (selectedShapeCenter) {
+					skCanvas.rotate(selectedShapeData.rotate!, selectedShapeCenter.x, selectedShapeCenter.y);
+				}
+
+				// Draw the entire selected shape with low opacity (no clipping)
+				const src = ck.XYWHRect(0, 0, selectedShapeData.image.width(), selectedShapeData.image.height());
+				const dst = ck.XYWHRect(selectedShapeData.x, selectedShapeData.y, selectedShapeData.width, selectedShapeData.height);
+				skCanvas.drawImageRect(selectedShapeData.image, src, dst, lowOpacityPaint);
+
+				// Restore canvas state
+				skCanvas.restore();
+			}
+		}
+
+		// Clip images to page bounds (central layout)
+		skCanvas.save();
+		skCanvas.clipRect(pageBounds, ck.ClipOp.Intersect, true);
+
+		// Draw all shapes in their original z-order (including selected shape)
+		// This maintains the correct layering without moving selected shape to top
+		for (let i = 0; i < mock_data.length; i++) {
+			const shape = mock_data[i];
 			if (!shape.image) continue;
-			
+
 			// Viewport culling - skip if shape is completely outside viewport
 			if (!isRectVisible(shape.x, shape.y, shape.width, shape.height, viewport)) {
 				continue;
 			}
-			
+
+			// Save canvas state before applying shape-specific transforms
+			skCanvas.save();
+
+			// Apply rotation if the shape has one
+			if (shape.rotate !== null && shape.rotate !== 0) {
+				const center = getShapeCenter(shape);
+				skCanvas.rotate(shape.rotate, center.x, center.y);
+			}
+
 			const src = ck.XYWHRect(0, 0, shape.image.width(), shape.image.height());
 			const dst = ck.XYWHRect(shape.x, shape.y, shape.width, shape.height);
 			skCanvas.drawImageRect(shape.image, src, dst, paints.image);
+
+			// Restore canvas state to reset rotation for next shape
+			skCanvas.restore();
 		}
 
+		// Restore clipping so borders can extend beyond page bounds if needed
+		skCanvas.restore();
+
+		// Draw borders on top of all shapes (with rotation applied)
 		// Draw hover effect (only if not selected)
-		if (isValidShapeIndex(hoveredShapeIndex) && hoveredShapeIndex !== selectedShapeIndex) {
-			const hoveredShape = mock_data[hoveredShapeIndex];
+		if (isValidShapeIndex(hoverState.shapeIndex) && hoverState.shapeIndex !== selectedShape.index) {
+			const hoveredShape = mock_data[hoverState.shapeIndex];
+
+			// Save canvas state and apply rotation
+			skCanvas.save();
+			if (hoveredShape.rotate !== null && hoveredShape.rotate !== 0) {
+				const center = getShapeCenter(hoveredShape);
+				skCanvas.rotate(hoveredShape.rotate, center.x, center.y);
+			}
+
 			drawHoverBorder(
 				skCanvas,
 				ck,
@@ -363,22 +457,30 @@
 				paints.hover,
 				cameraState.zoom
 			);
+
+			skCanvas.restore();
 		}
 
-		// Validate and draw selected shape
-		validateSelectedShape();
-		if (isValidShapeIndex(selectedShapeIndex)) {
-			const selectedShape = mock_data[selectedShapeIndex];
+		// Draw selected border on top
+		if (hasSelectedShape && selectedShape.rendered === false && selectedShapeData) {
+			// Reuse cached selectedShapeData and selectedShapeCenter
+			skCanvas.save();
+			if (selectedShapeCenter) {
+				skCanvas.rotate(selectedShapeData.rotate!, selectedShapeCenter.x, selectedShapeCenter.y);
+			}
+
 			drawSelectedBorder(
 				skCanvas,
 				ck,
-				selectedShape.x,
-				selectedShape.y,
-				selectedShape.width,
-				selectedShape.height,
+				selectedShapeData.x,
+				selectedShapeData.y,
+				selectedShapeData.width,
+				selectedShapeData.height,
 				paints.tool,
 				cameraState.zoom
 			);
+
+			skCanvas.restore();
 		}
 
 		skCanvas.restore();
@@ -408,78 +510,95 @@
 	};
 
 	// ==================== Mouse Event Handlers ====================
-	
+
 	/**
 	 * Handles shape dragging
 	 */
 	const handleShapeDragging = (event: MouseEvent) => {
 		event.preventDefault();
-		
+
 		const { x: currentMouseX, y: currentMouseY } = getMousePosition(event, canvas);
 		const currentWorldPos = screenToWorld(currentMouseX, currentMouseY, cameraState);
 		const lastWorldPos = screenToWorld(mouseState.lastMouseX, mouseState.lastMouseY, cameraState);
-		
+
 		const deltaX = currentWorldPos.x - lastWorldPos.x;
 		const deltaY = currentWorldPos.y - lastWorldPos.y;
-		
-		const draggedShape = mock_data[hoveredShapeIndex];
+
+		const draggedShape = mock_data[hoverState.shapeIndex];
 		draggedShape.x += deltaX;
 		draggedShape.y += deltaY;
-		
+
 		mouseState.lastMouseX = currentMouseX;
 		mouseState.lastMouseY = currentMouseY;
-		
+
 		updateCursor();
 		scheduleDraw();
 	};
 
 	// ==================== Resize Handlers ====================
-	
+
 	/**
-	 * Handles shape resizing while maintaining aspect ratio
+	 * Handles shape rotation
 	 */
-	const handleShapeResizing = (event: MouseEvent) => {
-		if (!resizeStartState || !resizingCorner || !isValidShapeIndex(selectedShapeIndex)) {
+	const handleShapeRotation = (event: MouseEvent) => {
+		// Only rotate if we have rotation state and a valid selected shape
+		if (!rotationStartState || !isValidShapeIndex(selectedShape.index)) {
+			// Clear rotation state if shape is no longer valid
+			if (!isValidShapeIndex(selectedShape.index)) {
+				rotationStartState = null;
+			}
 			return;
 		}
 
 		event.preventDefault();
-		
+
 		const { x: currentMouseX, y: currentMouseY } = getMousePosition(event, canvas);
 		const currentWorldPos = screenToWorld(currentMouseX, currentMouseY, cameraState);
-		const shape = mock_data[selectedShapeIndex];
-		const { shape: startShape, aspectRatio } = resizeStartState;
 
-		// Get anchor point (opposite corner)
-		const anchor = getAnchorPoint(resizingCorner, startShape);
+		// Ensure we're rotating the selected shape
+		const shape = mock_data[selectedShape.index];
+		if (!shape) {
+			rotationStartState = null;
+			return;
+		}
 
-		// Calculate new dimensions maintaining aspect ratio
-		let { width: newWidth, height: newHeight } = calculateDimensionsFromAnchor(
-			anchor,
-			currentWorldPos,
-			aspectRatio
-		);
+		const shapeCenter = getShapeCenter(shape);
+		shape.rotate = calculateRotation(rotationStartState, currentWorldPos, shapeCenter);
 
-		// Apply minimum size constraints
-		({ width: newWidth, height: newHeight } = applyMinSizeConstraints(
-			newWidth,
-			newHeight,
-			aspectRatio
-		));
+		mouseState.lastMouseX = currentMouseX;
+		mouseState.lastMouseY = currentMouseY;
 
-		// Calculate new position from anchor point
-		const { x: newX, y: newY } = calculatePositionFromAnchor(
+		scheduleDraw();
+	};
+
+	/**
+	 * Handles shape resizing while maintaining aspect ratio
+	 */
+	const handleShapeResizing = (event: MouseEvent) => {
+		if (!resizeStartState || !resizingCorner || !isValidShapeIndex(selectedShape.index)) {
+			return;
+		}
+
+		event.preventDefault();
+
+		const { x: currentMouseX, y: currentMouseY } = getMousePosition(event, canvas);
+		const currentWorldPos = screenToWorld(currentMouseX, currentMouseY, cameraState);
+		const shape = mock_data[selectedShape.index];
+		const rotation = shape.rotate ?? null;
+
+		// Calculate new dimensions and position
+		const { x, y, width, height } = calculateResize(
+			resizeStartState,
 			resizingCorner,
-			anchor,
-			newWidth,
-			newHeight
+			currentWorldPos,
+			rotation
 		);
 
 		// Update shape
-		shape.x = newX;
-		shape.y = newY;
-		shape.width = newWidth;
-		shape.height = newHeight;
+		shape.x = x;
+		shape.y = y;
+		shape.width = width;
+		shape.height = height;
 
 		mouseState.lastMouseX = currentMouseX;
 		mouseState.lastMouseY = currentMouseY;
@@ -497,38 +616,23 @@
 
 		hoverCheckTimeout = window.setTimeout(() => {
 			hoverCheckTimeout = null;
-			
+
 			if (!editor) return;
-			
+
 			const { x, y } = getMousePosition(event, editor);
 			const worldPos = screenToWorld(x, y, cameraState);
-			
-			// First, check if mouse is over a resize corner of the selected shape
-			let newHoveredResizeCorner: ResizeCorner | null = null;
-			
-			if (isValidShapeIndex(selectedShapeIndex)) {
-				const selectedShape = mock_data[selectedShapeIndex];
-				newHoveredResizeCorner = getHoveredResizeCorner(worldPos, selectedShape, cameraState.zoom);
-			}
-			
-			// Only check for shape hover if not hovering over a resize corner
-			let newHoveredIndex = INVALID_INDEX;
-			if (newHoveredResizeCorner === null) {
-				newHoveredIndex = findShapeAtPoint(worldPos, mock_data);
-			}
 
-			// Update hover states if changed
-			let needsUpdate = false;
-			
-			if (newHoveredResizeCorner !== hoveredResizeCorner) {
-				hoveredResizeCorner = newHoveredResizeCorner;
-				needsUpdate = true;
-			}
-			
-			if (newHoveredIndex !== hoveredShapeIndex) {
-				hoveredShapeIndex = newHoveredIndex;
-				needsUpdate = true;
-			}
+			// Detect what the mouse is hovering over
+			const newHoverState = detectHover(
+				worldPos,
+				mock_data,
+				selectedShape.index,
+				cameraState.zoom,
+				isValidShapeIndex
+			);
+
+			// Update hover state if changed
+			const needsUpdate = updateHoverState(hoverState, newHoverState);
 
 			if (needsUpdate) {
 				updateCursor();
@@ -549,6 +653,12 @@
 			return;
 		}
 
+		// Handle shape rotation (highest priority)
+		if (rotationStartState !== null && mouseState.isMouseDown) {
+			handleShapeRotation(event);
+			return;
+		}
+
 		// Handle shape resizing (priority over dragging)
 		if (resizingCorner !== null && mouseState.isMouseDown) {
 			handleShapeResizing(event);
@@ -556,7 +666,7 @@
 		}
 
 		// Handle shape dragging
-		if (mouseState.isDragging && isValidShapeIndex(hoveredShapeIndex)) {
+		if (mouseState.isDragging && isValidShapeIndex(hoverState.shapeIndex)) {
 			handleShapeDragging(event);
 			return;
 		}
@@ -587,19 +697,27 @@
 			return; // Don't handle shape selection while panning
 		}
 
-		// Check if clicking on a resize corner
-		if (hoveredResizeCorner !== null && isValidShapeIndex(selectedShapeIndex)) {
-			const shape = mock_data[selectedShapeIndex];
+		// Check if clicking on rotate circle (highest priority)
+		if (hoverState.isHoveringRotateCircle && isValidShapeIndex(selectedShape.index)) {
+			const shape = mock_data[selectedShape.index];
 			const worldPos = screenToWorld(x, y, cameraState);
-			
-			// Initialize resize state
-			resizingCorner = hoveredResizeCorner;
-			resizeStartState = {
-				shape: { ...shape }, // Copy shape state
-				startMousePos: worldPos,
-				aspectRatio: shape.width / shape.height
-			};
-			
+			rotationStartState = initializeRotation(shape, worldPos);
+
+			mouseState.isMouseDown = true;
+			mouseState.lastMouseX = x;
+			mouseState.lastMouseY = y;
+			updateCursor();
+			return;
+		}
+
+		// Check if clicking on a resize corner
+		if (hoverState.resizeCorner !== null && isValidShapeIndex(selectedShape.index)) {
+			const shape = mock_data[selectedShape.index];
+			const worldPos = screenToWorld(x, y, cameraState);
+
+			resizingCorner = hoverState.resizeCorner;
+			resizeStartState = initializeResize(shape, worldPos);
+
 			mouseState.isMouseDown = true;
 			mouseState.lastMouseX = x;
 			mouseState.lastMouseY = y;
@@ -608,14 +726,19 @@
 		}
 
 		// Handle shape selection/dragging
-		if (isValidShapeIndex(hoveredShapeIndex)) {
+		// Directly detect shape at click point for immediate selection
+		const worldPos = screenToWorld(x, y, cameraState);
+		const clickedShapeIndex = findShapeAtPoint(worldPos, mock_data);
+
+		if (isValidShapeIndex(clickedShapeIndex)) {
 			mouseState.isDragging = true;
 			initializeMouseDrag(x, y);
 			// Clear resize corner hover when selection changes
-			if (selectedShapeIndex !== hoveredShapeIndex) {
-				hoveredResizeCorner = null;
+			if (selectedShape.index !== INVALID_INDEX && selectedShape.index !== clickedShapeIndex) {
+				resetHoverState(hoverState);
 			}
-			selectedShapeIndex = hoveredShapeIndex;
+			selectedShape.index = clickedShapeIndex;
+			selectedShape.rendered = false;
 		} else {
 			clearSelection();
 		}
@@ -627,6 +750,10 @@
 	 * Handles mouse up events
 	 */
 	const handleMouseUp = (event: MouseEvent) => {
+		// Clear rotation state
+		if (rotationStartState !== null) {
+			rotationStartState = null;
+		}
 		if (mouseState.isMouseDown) {
 			event.preventDefault();
 			mouseState.isMouseDown = false;
@@ -646,19 +773,20 @@
 			mouseState.isDragging = false;
 			resizingCorner = null;
 			resizeStartState = null;
+			rotationStartState = null;
 			updateCursor();
 		}
-		
+
 		if (hoverCheckTimeout !== null) {
 			clearTimeout(hoverCheckTimeout);
 			hoverCheckTimeout = null;
 		}
-		
+
 		clearHoverState();
 	};
 
 	// ==================== Keyboard Event Handlers ====================
-	
+
 	/**
 	 * Checks if event should be ignored (e.g., typing in input field)
 	 */
@@ -697,7 +825,7 @@
 	};
 
 	// ==================== Window Event Handlers ====================
-	
+
 	/**
 	 * Handles window resize events
 	 */
@@ -710,7 +838,7 @@
 	};
 
 	// ==================== Event Binding ====================
-	
+
 	/**
 	 * Binds all event listeners and returns cleanup function
 	 */

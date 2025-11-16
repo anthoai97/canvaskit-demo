@@ -127,6 +127,15 @@ export const drawSelectedBorder = (
 		{ x: x + width, y: y + height } // Bottom-right
 	];
 
+	const rotationCircle = {
+		x : x + width / 2,
+		y : y - 100,
+		radius : circleRadius
+	};
+
+	canvas.drawCircle(rotationCircle.x, rotationCircle.y, rotationCircle.radius, circleFillPaint);
+	canvas.drawCircle(rotationCircle.x, rotationCircle.y, rotationCircle.radius, circleStrokePaint);
+
 	for (const corner of corners) {
 		// Draw white fill first
 		canvas.drawCircle(corner.x, corner.y, circleRadius, circleFillPaint);
