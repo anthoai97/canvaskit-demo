@@ -1,7 +1,7 @@
 import type { HoverBorder, ToolBorder } from "$lib/types/tools";
 
 export const DEFAULT_CAMERA_ZOOM = 0.5;
-export const MIN_CAMERA_ZOOM = 0.1;
+export const MIN_CAMERA_ZOOM = 0.2;
 export const MAX_CAMERA_ZOOM = 10;
 
 export const DEFAULT_HOVER_BORDER : HoverBorder = {

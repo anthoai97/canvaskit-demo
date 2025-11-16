@@ -28,6 +28,7 @@ export interface ShapeWithImage {
 	url: string;
 	image: Image | null;
 	ratio: number;
+	rotate: number | null;
 }
 
 /**

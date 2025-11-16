@@ -1,4 +1,5 @@
 import type { CameraState } from '$lib/types/camera';
+import type { Point } from './transform';
 
 /**
  * Converts screen coordinates to world coordinates
@@ -11,7 +12,7 @@ export const screenToWorld = (
 	screenX: number,
 	screenY: number,
 	cameraState: CameraState
-): { x: number; y: number } => {
+): Point => {
 	const worldX = (screenX - cameraState.panX) / cameraState.zoom;
 	const worldY = (screenY - cameraState.panY) / cameraState.zoom;
 	return { x: worldX, y: worldY };
@@ -28,7 +29,7 @@ export const worldToScreen = (
 	worldX: number,
 	worldY: number,
 	cameraState: CameraState
-): { x: number; y: number } => {
+): Point => {
 	const screenX = worldX * cameraState.zoom + cameraState.panX;
 	const screenY = worldY * cameraState.zoom + cameraState.panY;
 	return { x: screenX, y: screenY };
@@ -40,10 +41,7 @@ export const worldToScreen = (
  * @param element - Element to get position relative to
  * @returns Mouse position relative to element
  */
-export const getMousePosition = (
-	event: MouseEvent,
-	element: HTMLElement
-): { x: number; y: number } => {
+export const getMousePosition = (event: MouseEvent, element: HTMLElement): Point => {
 	const rect = element.getBoundingClientRect();
 	return {
 		x: event.clientX - rect.left,
