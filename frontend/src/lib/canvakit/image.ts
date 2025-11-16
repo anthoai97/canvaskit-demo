@@ -48,12 +48,14 @@ export async function loadImageBinary<
 		}
 		const image = await loadSkImage(ck, shape.url);
 		const ratio = image ? image.width() / image.height() : 0;
+
+		// Preserve the logical width/height from the data file so layout size
+		// is independent from the intrinsic pixel resolution of the image.
+		// We only store the image handle and aspect ratio here.
 		result.push({
 			...shape,
-			image: image,
-			width: image?.width() ?? shape.width,
-			height: image?.height() ?? shape.height,
-			ratio: ratio
+			image,
+			ratio
 		});
 	}
 	return result;

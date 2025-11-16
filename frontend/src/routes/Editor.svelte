@@ -107,122 +107,7 @@
 		lastMouseY: 0
 	};
 
-	let mock_data: Shape[] = [
-		{
-			kind: 'image',
-			x: 200,
-			y: -200,
-			width: 300,
-			height: 200,
-			ratio: 0,
-			url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
-			image: null,
-			rotate: null
-		},
-		{
-			kind: 'image',
-			x: -600,
-			y: 100,
-			width: 400,
-			height: 300,
-			ratio: 0,
-			url: 'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=800',
-			image: null,
-			rotate: null
-		},
-		{
-			kind: 'image',
-			x: 300,
-			y: 200,
-			width: 250,
-			height: 180,
-			ratio: 0,
-			url: 'https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800',
-			image: null,
-			rotate: null
-		},
-		{
-			kind: 'image',
-			x: -200,
-			y: 400,
-			width: 350,
-			height: 250,
-			ratio: 0,
-			url: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=800',
-			image: null,
-			rotate: null
-		},
-		{
-			kind: 'text',
-			x: -150,
-			y: -100,
-			width: 400,
-			height: 180,
-			text: 'This is a test of the text shape.\nThis is a second line of text.\nThis is a third line of text.',
-			fontSize: 30,
-			fontFamily: 'Noto Sans',
-			fontWeight: 400,
-			fontStyle: 'normal',
-			fontColor: '#000000',
-			fontOpacity: 1.0,
-			rotate: null
-		}
-		// {
-		// 	kind: 'image',
-		// 	x: 500,
-		// 	y: -400,
-		// 	width: 200,
-		// 	height: 150,
-		// 	ratio: 0,
-		// 	url: 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800',
-		// 	image: null,
-		// 	rotate: null
-		// },
-		// {
-		// 	kind: 'image',
-		// 	x: -300,
-		// 	y: -500,
-		// 	width: 280,
-		// 	height: 200,
-		// 	ratio: 0,
-		// 	url: 'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=800',
-		// 	image: null,
-		// 	rotate: null
-		// },
-		// {
-		// 	kind: 'image',
-		// 	x: 100,
-		// 	y: 500,
-		// 	width: 320,
-		// 	height: 240,
-		// 	ratio: 0,
-		// 	url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800',
-		// 	image: null,
-		// 	rotate: null
-		// },
-		// {
-		// 	kind: 'image',
-		// 	x: -500,
-		// 	y: 300,
-		// 	width: 180,
-		// 	height: 180,
-		// 	ratio: 0,
-		// 	url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
-		// 	image: null,
-		// 	rotate: null
-		// },
-		// {
-		// 	kind: 'image',
-		// 	x: 600,
-		// 	y: 300,
-		// 	width: 400,
-		// 	height: 300,
-		// 	ratio: 0,
-		// 	url: 'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=800',
-		// 	image: null,
-		// 	rotate: null
-		// }
-	];
+	let mock_data: Shape[] = [];
 
 	// ==================== WebSocket state ====================
 	let ws: StableWebSocket | null = null;
@@ -266,7 +151,21 @@
 		surface = createWebGLSurface(ck, canvas);
 		skCanvas = surface?.getCanvas() ?? null;
 
-		// Currently all shapes are images; narrow to ImageShape for loading.
+		// Load initial shapes from backend API (or static test JSON for now)
+		try {
+			// TODO: switch to a real backend endpoint (e.g. /api/mock_data) later
+			const response = await fetch('/test_data/stress_text_mock_data.json');
+			if (response.ok) {
+				const data = (await response.json()) as Shape[];
+				mock_data = data;
+			} else {
+				console.error('Failed to fetch mock data', response.status);
+			}
+		} catch (error) {
+			console.error('Error fetching mock data', error);
+		}
+
+		// Load images for image shapes
 		mock_data = (await loadImageBinary(ck, mock_data as ImageShape[])) as Shape[];
 
 		paints = createPaints(ck, page);
@@ -930,12 +829,10 @@
 		canvas.width = canvasWidth * devicePixelRatioValue;
 		canvas.height = canvasHeight * devicePixelRatioValue;
 
-		// Inform CanvasKit surface about the new backing-store size (typed as any because resize is not in TS defs)
-		if (surface) {
-			(surface as any).resize(
-				canvasWidth * devicePixelRatioValue,
-				canvasHeight * devicePixelRatioValue
-			);
+		// Inform CanvasKit surface about the new backing-store size (if supported)
+		const maybeSurface: any = surface;
+		if (maybeSurface && typeof maybeSurface.resize === 'function') {
+			maybeSurface.resize(canvasWidth * devicePixelRatioValue, canvasHeight * devicePixelRatioValue);
 		}
 
 		scheduleDraw();

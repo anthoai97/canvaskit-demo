@@ -1,0 +1,63 @@
+[
+  {
+    "kind": "image",
+    "x": 200,
+    "y": -200,
+    "width": 300,
+    "height": 200,
+    "ratio": 0,
+    "url": "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1600",
+    "image": null,
+    "rotate": null
+  },
+  {
+    "kind": "image",
+    "x": -600,
+    "y": 100,
+    "width": 400,
+    "height": 300,
+    "ratio": 0,
+    "url": "https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=1600",
+    "image": null,
+    "rotate": null
+  },
+  {
+    "kind": "image",
+    "x": 300,
+    "y": 200,
+    "width": 250,
+    "height": 180,
+    "ratio": 0,
+    "url": "https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=1600",
+    "image": null,
+    "rotate": null
+  },
+  {
+    "kind": "image",
+    "x": -200,
+    "y": 400,
+    "width": 350,
+    "height": 250,
+    "ratio": 0,
+    "url": "https://images.unsplash.com/photo-1519681393784-d120267933ba?w=1600",
+    "image": null,
+    "rotate": null
+  },
+  {
+    "kind": "text",
+    "x": -150,
+    "y": -100,
+    "width": 400,
+    "height": 180,
+    "text": "This is a test of the text shape.\nThis is a second line of text.\nThis is a third line of text.",
+    "fontSize": 30,
+    "fontFamily": "Noto Sans",
+    "fontWeight": 400,
+    "fontStyle": "normal",
+    "fontColor": "#000000",
+    "fontOpacity": 1,
+    "rotate": null
+  }
+]
+
+
