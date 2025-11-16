@@ -18,26 +18,23 @@ export const loadSkImage = async (ck: CanvasKit, url: string): Promise<Image | n
 };
 
 /**
- * Interface for shape data that needs image loading
- */
-export interface ShapeWithImage {
-	x: number;
-	y: number;
-	width: number;
-	height: number;
-	url: string;
-	image: Image | null;
-	ratio: number;
-	rotate: number | null;
-}
-
-/**
  * Updates shapes sequentially by loading their images
  * @param ck - CanvasKit instance
  * @param data - Array of shapes to update
  * @returns Promise that resolves to updated shapes with loaded images
  */
-export async function loadImageBinary<T extends ShapeWithImage>(
+export async function loadImageBinary<
+	T extends {
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+		url: string;
+		image: Image | null;
+		ratio: number;
+		rotate: number | null;
+	}
+>(
 	ck: CanvasKit,
 	data: T[]
 ): Promise<T[]> {

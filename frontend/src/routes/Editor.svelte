@@ -28,8 +28,8 @@
 		type SelectedShape
 	} from '$lib/types/editor';
 	import type { MouseState } from '$lib/types/mouse';
-	import type { EditorPage } from '$lib/types/page';
-	import type { Shape } from '$lib/types/shape';
+import type { EditorPage } from '$lib/types/page';
+import type { ImageShape, Shape } from '$lib/types/shape';
 	import { getMousePosition, screenToWorld } from '$lib/utils/coordinates';
 	import { CURSOR_DEFAULT, getCursorStyle } from '$lib/utils/cursor';
 	import { findShapeAtPoint } from '$lib/utils/hit-test';
@@ -94,15 +94,16 @@
 		isPanning: false
 	};
 
-	let mouseState: MouseState = {
+let mouseState: MouseState = {
 		isMouseDown: false,
 		isDragging: false,
 		lastMouseX: 0,
 		lastMouseY: 0
 	};
 
-	let mock_data: Shape[] = [
+let mock_data: Shape[] = [
 		{
+			kind: 'image',
 			x: 200,
 			y: -200,
 			width: 300,
@@ -113,6 +114,7 @@
 			rotate: null
 		},
 		{
+			kind: 'image',
 			x: -600,
 			y: 100,
 			width: 400,
@@ -123,6 +125,7 @@
 			rotate: null
 		},
 		{
+			kind: 'image',
 			x: 300,
 			y: 200,
 			width: 250,
@@ -133,6 +136,7 @@
 			rotate: null
 		},
 		{
+			kind: 'image',
 			x: -200,
 			y: 400,
 			width: 350,
@@ -143,6 +147,7 @@
 			rotate: null
 		},
 		{
+			kind: 'image',
 			x: 500,
 			y: -400,
 			width: 200,
@@ -153,6 +158,7 @@
 			rotate: null
 		},
 		{
+			kind: 'image',
 			x: -300,
 			y: -500,
 			width: 280,
@@ -163,6 +169,7 @@
 			rotate: null
 		},
 		{
+			kind: 'image',
 			x: 100,
 			y: 500,
 			width: 320,
@@ -173,6 +180,7 @@
 			rotate: null
 		},
 		{
+			kind: 'image',
 			x: -500,
 			y: 300,
 			width: 180,
@@ -183,6 +191,7 @@
 			rotate: null
 		},
 		{
+			kind: 'image',
 			x: 600,
 			y: 300,
 			width: 400,
@@ -227,7 +236,8 @@
 		surface = createWebGLSurface(ck, canvas);
 		skCanvas = surface?.getCanvas() ?? null;
 
-		mock_data = await loadImageBinary(ck, mock_data);
+		// Currently all shapes are images; narrow to ImageShape for loading.
+		mock_data = (await loadImageBinary(ck, mock_data as ImageShape[])) as Shape[];
 
 		paints = createPaints(ck, page);
 
@@ -240,7 +250,7 @@
 		drawScene();
 
 		// Setup WebSocket connection for collaborative messaging / presence.
-		setupWebSocket();
+		// setupWebSocket();
 	});
 
 	onDestroy(() => {
@@ -396,7 +406,7 @@
 		// This will show parts outside page bounds with low opacity
 		if (hasSelectedShape) {
 			selectedShapeData = mock_data[selectedIndex];
-			if (selectedShapeData.image) {
+			if (selectedShapeData.kind === 'image' && selectedShapeData.image) {
 				// Cache shape center if rotation is needed
 				if (selectedShapeData.rotate !== null && selectedShapeData.rotate !== 0) {
 					selectedShapeCenter = getShapeCenter(selectedShapeData);
@@ -438,7 +448,7 @@
 		// This maintains the correct layering without moving selected shape to top
 		for (let i = 0; i < mock_data.length; i++) {
 			const shape = mock_data[i];
-			if (!shape.image) continue;
+			if (shape.kind !== 'image' || !shape.image) continue;
 
 			// Viewport culling - skip if shape is completely outside viewport
 			if (!isRectVisible(shape.x, shape.y, shape.width, shape.height, viewport)) {
