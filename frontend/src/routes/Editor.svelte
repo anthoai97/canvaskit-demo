@@ -109,6 +109,22 @@
 
 	let mock_data: Shape[] = [];
 
+	// Animation constants
+	const IMAGE_WIPE_DURATION = 1000; // ms
+
+	/**
+	 * Triggers (or replays) the wipe animation for all image shapes.
+	 */
+	const triggerImageWipe = () => {
+		const now = performance.now();
+		for (const shape of mock_data) {
+			if (shape.kind === 'image') {
+				shape.fadeInStart = now;
+			}
+		}
+		scheduleDraw();
+	};
+
 	// ==================== WebSocket state ====================
 	let ws: StableWebSocket | null = null;
 	let wsMessages: string[] = [];
@@ -336,12 +352,14 @@
 	};
 
 	// Draws all shapes (images and text) within the page clip.
-	const drawAllShapes = (viewport: ReturnType<typeof calculateViewport>) => {
+	const drawAllShapes = (viewport: ReturnType<typeof calculateViewport>, now: number) => {
 		if (!skCanvas || !ck || !paints || !pageBounds || !fontMgr) return;
 
 		// Clip to page bounds
 		skCanvas.save();
 		skCanvas.clipRect(pageBounds, ck.ClipOp.Intersect, true);
+
+		let hasAnimatingImages = false;
 
 		for (let i = 0; i < mock_data.length; i++) {
 			const shape = mock_data[i];
@@ -361,7 +379,30 @@
 					skCanvas.rotate(shape.rotate, center.x, center.y);
 				}
 
-				drawImageShape(ck, skCanvas, shape, paints.image);
+				// Wipe animation for images: vertically reveal from top to bottom
+				const imageShape = shape;
+				if (imageShape.fadeInStart == null) {
+					imageShape.fadeInStart = now;
+				}
+				const elapsed = now - imageShape.fadeInStart;
+				const progress = Math.max(0, Math.min(1, elapsed / IMAGE_WIPE_DURATION));
+
+				if (progress < 1) {
+					hasAnimatingImages = true;
+				}
+
+				// Compute source and destination rects based on progress (wipe height)
+				const fullWidth = imageShape.image!.width();
+				const fullHeight = imageShape.image!.height();
+				const srcHeight = fullHeight * progress;
+				const dstHeight = imageShape.height * progress;
+
+				if (srcHeight > 0 && dstHeight > 0) {
+					const src = ck.XYWHRect(0, 0, fullWidth, srcHeight);
+					const dst = ck.XYWHRect(imageShape.x, imageShape.y, imageShape.width, dstHeight);
+					skCanvas.drawImageRect(imageShape.image!, src, dst, paints.image);
+				}
+
 				skCanvas.restore();
 			}
 
@@ -379,6 +420,11 @@
 
 		// Restore clipping so borders can extend beyond page bounds if needed
 		skCanvas.restore();
+
+		// If any image is still mid-fade, schedule another frame to continue the animation.
+		if (hasAnimatingImages) {
+			scheduleDraw();
+		}
 	};
 
 	// Draws hover and selection borders on top of all shapes.
@@ -455,6 +501,7 @@
 
 		// Calculate visible viewport for culling
 		const viewport = calculateViewport(canvasWidth, canvasHeight, cameraState);
+		const now = performance.now();
 
 		// Draw background
 		drawBackground(skCanvas, ck, page, paints.background);
@@ -466,7 +513,7 @@
 		drawSelectedShapePreview();
 
 		// Draw all shapes inside page bounds
-		drawAllShapes(viewport);
+		drawAllShapes(viewport, now);
 
 		// Draw hover + selection borders on top
 		drawShapeOverlays();
@@ -880,6 +927,13 @@
 			on:click={sendTestMessage}
 		>
 			Send test message
+		</button>
+
+		<button
+			class="mt-4 px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-xs"
+			on:click={triggerImageWipe}
+		>
+			Replay image wipe
 		</button>
 
 		<div class="mt-2 max-h-64 overflow-auto rounded bg-black/40 p-2 text-[11px] leading-snug">

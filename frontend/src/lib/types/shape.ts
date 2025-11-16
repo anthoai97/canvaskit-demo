@@ -13,6 +13,8 @@ export interface ImageShape {
 	image: Image | null;
 	ratio: number;
 	rotate: number | null;
+	// Optional client-side state: when this image started fading in (ms, performance.now()).
+	fadeInStart?: number | null;
 }
 
 /**
