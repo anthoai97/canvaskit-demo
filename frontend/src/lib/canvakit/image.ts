@@ -33,6 +33,7 @@ export async function loadImageBinary<
 		image: Image | null;
 		ratio: number;
 		rotate: number | null;
+		kind?: string;
 	}
 >(
 	ck: CanvasKit,
@@ -40,6 +41,10 @@ export async function loadImageBinary<
 ): Promise<T[]> {
 	const result: T[] = [];
 	for (const shape of data) {
+		if (shape.kind !== 'image') {
+			result.push(shape);
+			continue;
+		}
 		const image = await loadSkImage(ck, shape.url);
 		const ratio = image ? image.width() / image.height() : 0;
 		result.push({

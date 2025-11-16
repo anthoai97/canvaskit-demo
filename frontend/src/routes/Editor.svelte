@@ -28,8 +28,8 @@
 		type SelectedShape
 	} from '$lib/types/editor';
 	import type { MouseState } from '$lib/types/mouse';
-import type { EditorPage } from '$lib/types/page';
-import type { ImageShape, Shape } from '$lib/types/shape';
+	import type { EditorPage } from '$lib/types/page';
+	import type { ImageShape, Shape } from '$lib/types/shape';
 	import { getMousePosition, screenToWorld } from '$lib/utils/coordinates';
 	import { CURSOR_DEFAULT, getCursorStyle } from '$lib/utils/cursor';
 	import { findShapeAtPoint } from '$lib/utils/hit-test';
@@ -94,14 +94,14 @@ import type { ImageShape, Shape } from '$lib/types/shape';
 		isPanning: false
 	};
 
-let mouseState: MouseState = {
+	let mouseState: MouseState = {
 		isMouseDown: false,
 		isDragging: false,
 		lastMouseX: 0,
 		lastMouseY: 0
 	};
 
-let mock_data: Shape[] = [
+	let mock_data: Shape[] = [
 		{
 			kind: 'image',
 			x: 200,
@@ -147,60 +147,75 @@ let mock_data: Shape[] = [
 			rotate: null
 		},
 		{
-			kind: 'image',
-			x: 500,
-			y: -400,
-			width: 200,
-			height: 150,
-			ratio: 0,
-			url: 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800',
-			image: null,
-			rotate: null
-		},
-		{
-			kind: 'image',
-			x: -300,
-			y: -500,
-			width: 280,
-			height: 200,
-			ratio: 0,
-			url: 'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=800',
-			image: null,
-			rotate: null
-		},
-		{
-			kind: 'image',
+			kind: 'text',
 			x: 100,
-			y: 500,
-			width: 320,
-			height: 240,
-			ratio: 0,
-			url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800',
-			image: null,
-			rotate: null
-		},
-		{
-			kind: 'image',
-			x: -500,
-			y: 300,
-			width: 180,
-			height: 180,
-			ratio: 0,
-			url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
-			image: null,
-			rotate: null
-		},
-		{
-			kind: 'image',
-			x: 600,
-			y: 300,
-			width: 400,
-			height: 300,
-			ratio: 0,
-			url: 'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=800',
-			image: null,
+			y: 100,
+			width: 100,
+			height: 100,
+			text: 'Hello, world!',
+			fontSize: 20,
+			fontFamily: 'Arial',
+			fontWeight: 400,
+			fontStyle: 'normal',
+			fontColor: '#000000',
+			fontOpacity: 1.0,
 			rotate: null
 		}
+		// {
+		// 	kind: 'image',
+		// 	x: 500,
+		// 	y: -400,
+		// 	width: 200,
+		// 	height: 150,
+		// 	ratio: 0,
+		// 	url: 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800',
+		// 	image: null,
+		// 	rotate: null
+		// },
+		// {
+		// 	kind: 'image',
+		// 	x: -300,
+		// 	y: -500,
+		// 	width: 280,
+		// 	height: 200,
+		// 	ratio: 0,
+		// 	url: 'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=800',
+		// 	image: null,
+		// 	rotate: null
+		// },
+		// {
+		// 	kind: 'image',
+		// 	x: 100,
+		// 	y: 500,
+		// 	width: 320,
+		// 	height: 240,
+		// 	ratio: 0,
+		// 	url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800',
+		// 	image: null,
+		// 	rotate: null
+		// },
+		// {
+		// 	kind: 'image',
+		// 	x: -500,
+		// 	y: 300,
+		// 	width: 180,
+		// 	height: 180,
+		// 	ratio: 0,
+		// 	url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
+		// 	image: null,
+		// 	rotate: null
+		// },
+		// {
+		// 	kind: 'image',
+		// 	x: 600,
+		// 	y: 300,
+		// 	width: 400,
+		// 	height: 300,
+		// 	ratio: 0,
+		// 	url: 'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=800',
+		// 	image: null,
+		// 	rotate: null
+		// }
 	];
 
 	// ==================== WebSocket state ====================
