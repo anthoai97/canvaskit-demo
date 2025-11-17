@@ -1,6 +1,18 @@
 import type { Image } from 'canvaskit-wasm';
 
 /**
+ * Animation configuration for shapes.
+ * Controls how shapes appear when first loaded or when animation is triggered.
+ */
+export interface ShapeAnimation {
+	type: 'wipe' | 'fade' | 'raise' | 'pan' | 'none';
+	duration?: number; // ms, defaults to 300 if not specified
+	delay?: number; // ms, delay before animation starts (defaults to 0)
+	// For 'pan' animation: 'left' | 'right' (defaults to 'left')
+	direction?: 'left' | 'right';
+}
+
+/**
  * Concrete shape type for bitmap images.
  */
 export interface ImageShape {
@@ -13,8 +25,9 @@ export interface ImageShape {
 	image: Image | null;
 	ratio: number;
 	rotate: number | null;
-	// Optional client-side state: when this image started fading in (ms, performance.now()).
-	fadeInStart?: number | null;
+	animation?: ShapeAnimation;
+	// Optional client-side state: when this image started animating (ms, performance.now()).
+	animationStart?: number | null;
 }
 
 /**
@@ -41,6 +54,11 @@ export interface TextShape {
 	fontStyle: string;
 	fontColor: string;
 	fontOpacity: number;
+
+	// Animation
+	animation?: ShapeAnimation;
+	// Optional client-side state: when this text started animating (ms, performance.now()).
+	animationStart?: number | null;
 }
 
 /**

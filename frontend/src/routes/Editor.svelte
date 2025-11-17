@@ -1,53 +1,28 @@
 <script lang="ts">
 	import { createWebGLSurface, initCanvasKit } from '$lib/canvakit/canvas';
-	import {
-		createPaints,
-		drawBackground,
-		drawHoverBorder,
-		drawSelectedBorder
-	} from '$lib/canvakit/drawing';
-	import { loadImageBinary, drawImageShape } from '$lib/canvakit/image';
-	import {
-		CURSOR_GRAB,
-		CURSOR_GRABBING,
-		DEFAULT_CAMERA_ZOOM,
-		HOVER_CHECK_DELAY,
-		INVALID_INDEX,
-		MAX_CAMERA_ZOOM,
-		MIN_CAMERA_ZOOM,
-		ZOOM_IN_FACTOR,
-		ZOOM_OUT_FACTOR
-	} from '$lib/contants/const';
-	import type { CameraState } from '$lib/types/camera';
+	import { createPaints } from '$lib/canvakit/drawing';
+	import { loadFonts, preloadFonts } from '$lib/canvakit/font';
+	import { DEFAULT_CAMERA_ZOOM, INVALID_INDEX } from '$lib/contants/const';
 	import { StableWebSocket } from '$lib/ws';
-	import {
-		createSelectedShape,
-		resetSelectedShape,
-		type ResizeState,
-		type RotationState,
-		type SelectedShape
-	} from '$lib/types/editor';
-	import type { MouseState } from '$lib/types/mouse';
-	import type { EditorPage } from '$lib/types/page';
-	import type { ImageShape, Shape } from '$lib/types/shape';
-	import { getMousePosition, screenToWorld } from '$lib/utils/coordinates';
-	import { CURSOR_DEFAULT, getCursorStyle } from '$lib/utils/cursor';
-	import { findShapeAtPoint } from '$lib/utils/hit-test';
-	import { detectHover, updateHoverState } from '$lib/utils/hover-detection';
-	import { createHoverState, resetHoverState, type HoverState } from '$lib/utils/hover-state';
-	import { getCornerDirection, type ResizeCorner } from '$lib/utils/resize';
-	import {
-		calculateResize,
-		calculateRotation,
-		initializeResize,
-		initializeRotation
-	} from '$lib/utils/shape-operations';
-	import { getShapeCenter } from '$lib/utils/transform';
-	import { calculateViewport, isRectVisible } from '$lib/utils/viewport';
+	import { resetSelectedShape } from '$lib/types/editor';
+	import { resetHoverState } from '$lib/utils/hover-state';
+	import type { EditorDocument, EditorPage } from '$lib/types/page';
+	import type { Shape } from '$lib/types/shape';
 	import type { Canvas, CanvasKit, Paint, Surface, FontMgr } from 'canvaskit-wasm';
 	import { onDestroy, onMount, tick } from 'svelte';
-	import { loadFonts, preloadFonts } from '$lib/canvakit/font';
-	import { drawTextShape } from '$lib/canvakit/text';
+	import { loadDocument, createDefaultDocument, loadPageImages } from '$lib/editor/document-loader';
+	import { drawScene as renderScene, type RenderContext } from '$lib/editor/scene-renderer';
+	import {
+		handleWheel,
+		handleMouseMove,
+		handleMouseDown,
+		handleMouseUp,
+		handleMouseLeave,
+		handleKeyDown,
+		handleKeyUp,
+		updateCursor,
+		type EventHandlerContext
+	} from '$lib/editor/event-handlers';
 
 	let editor: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
@@ -58,12 +33,12 @@
 	let devicePixelRatioValue = 1;
 
 	// UI state
-	let canvasCursor = CURSOR_DEFAULT;
-	let hoverState: HoverState = createHoverState();
-	let selectedShape: SelectedShape = createSelectedShape();
-	let resizingCorner: ResizeCorner | null = null;
-	let resizeStartState: ResizeState | null = null;
-	let rotationStartState: RotationState | null = null;
+	let canvasCursor = 'default';
+	let hoverState = { shapeIndex: INVALID_INDEX, resizeCorner: null, isHoveringRotateCircle: false };
+	let selectedShape = { index: INVALID_INDEX, rendered: false };
+	let resizingCorner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | null = null;
+	let resizeStartState: any = null;
+	let rotationStartState: any = null;
 
 	// Paint objects (reused for performance)
 	let paints: ReturnType<typeof createPaints> | null = null;
@@ -73,7 +48,11 @@
 	// Performance optimization: requestAnimationFrame throttling
 	let animationFrameId: number | null = null;
 	let needsRedraw = false;
-	let hoverCheckTimeout: number | null = null;
+	let hoverCheckTimeout: { value: number | null } = { value: null };
+
+	// Auto-play mode: automatically advance to next page after animations complete
+	let isAutoPlaying = false;
+	let wasAnimating = false;
 
 	// Event handlers cleanup
 	let cleanupEvents: (() => void) | null = null;
@@ -85,44 +64,131 @@
 	let skCanvas: Canvas | null = null;
 	let fontMgr: FontMgr | null = null;
 
-	let page: EditorPage = {
-		width: 1920,
-		height: 1080,
-		background: {
-			color: { r: 255, g: 255, b: 255, a: 1.0 }
-		}
-	};
+	// Multi-page support
+	let document: EditorDocument | null = null;
+	let currentPageIndex = 0;
+	let page: EditorPage | null = null;
+	let shapes: Shape[] = [];
 
-	let cameraState: CameraState = {
+	let cameraState = {
 		zoom: DEFAULT_CAMERA_ZOOM,
 		panX: 0,
 		panY: 0,
 		isPanning: false
 	};
 
-	let mouseState: MouseState = {
+	let mouseState = {
 		isMouseDown: false,
 		isDragging: false,
 		lastMouseX: 0,
 		lastMouseY: 0
 	};
 
-	let mock_data: Shape[] = [];
+	/**
+	 * Loads and switches to a specific page
+	 */
+	const loadPage = async (pageIndex: number) => {
+		if (!document || !ck || pageIndex < 0 || pageIndex >= document.pages.length) return;
 
-	// Animation constants
-	const IMAGE_WIPE_DURATION = 1000; // ms
+		const newPage = document.pages[pageIndex];
+		if (!newPage) return;
+
+		// Load images for the new page if needed
+		const loadedShapes = await loadPageImages(ck, newPage);
+		newPage.shapes = loadedShapes;
+
+		page = newPage;
+		shapes = loadedShapes;
+
+		// Update paints and bounds for new page
+		paints = createPaints(ck, page);
+		pageBounds = ck.XYWHRect(-page.width / 2, -page.height / 2, page.width, page.height);
+
+		// Reset camera to center
+		cameraState.panX = centerX;
+		cameraState.panY = centerY;
+		clearSelection();
+		
+		// Check if new page has animations (for auto-play mode)
+		if (isAutoPlaying) {
+			const hasAnimations = loadedShapes.some(
+				(shape) => shape.animation && shape.animation.type !== 'none'
+			);
+			if (hasAnimations) {
+				// Start animations on the new page
+				const now = performance.now();
+				for (const shape of loadedShapes) {
+					if (shape.animation && shape.animation.type !== 'none') {
+						shape.animationStart = now;
+					}
+				}
+				wasAnimating = true;
+			} else {
+				// No animations on this page, advance to next page immediately
+				wasAnimating = false;
+				// Use setTimeout to avoid calling switchToPage during loadPage
+				setTimeout(() => {
+					if (document && document.pages.length > 0) {
+						const nextPageIndex = (currentPageIndex + 1) % document.pages.length;
+						switchToPage(nextPageIndex);
+					}
+				}, 0);
+			}
+		} else {
+			wasAnimating = false;
+		}
+		
+		scheduleDraw();
+	};
+
+	// Track if we're initialized to prevent reactive statement from running too early
+	let isInitialized = false;
+
+	// Reactive: Update current page when index changes (only after initialization)
+	$: if (
+		isInitialized &&
+		document &&
+		document.pages.length > 0 &&
+		ck &&
+		currentPageIndex >= 0 &&
+		currentPageIndex < document.pages.length
+	) {
+		loadPage(currentPageIndex);
+	}
 
 	/**
-	 * Triggers (or replays) the wipe animation for all image shapes.
+	 * Toggles auto-play mode: starts animations and auto-advance if stopped, stops if playing
 	 */
-	const triggerImageWipe = () => {
-		const now = performance.now();
-		for (const shape of mock_data) {
-			if (shape.kind === 'image') {
-				shape.fadeInStart = now;
+	const toggleAutoPlay = () => {
+		if (isAutoPlaying) {
+			// Stop auto-play
+			isAutoPlaying = false;
+			wasAnimating = false;
+		} else {
+			// Start auto-play
+			const now = performance.now();
+			for (const shape of shapes) {
+				if (shape.animation && shape.animation.type !== 'none') {
+					// Reset animation start time to replay the animation
+					shape.animationStart = now;
+				}
 			}
+			isAutoPlaying = true;
+			wasAnimating = true; // Assume we're starting animations
+			scheduleDraw();
 		}
-		scheduleDraw();
+	};
+
+	// ==================== Page Management ====================
+
+	/**
+	 * Switches to a specific page by index
+	 */
+	const switchToPage = (index: number) => {
+		if (document && index >= 0 && index < document.pages.length) {
+			currentPageIndex = index;
+			// loadPage will be called by the reactive statement
+		}
 	};
 
 	// ==================== WebSocket state ====================
@@ -135,10 +201,6 @@
 		ws.addMessageListener((event) => {
 			wsMessages = [...wsMessages.slice(-19), event.data];
 		});
-	};
-
-	const sendTestMessage = () => {
-		ws?.send(`hello from editor at ${new Date().toLocaleTimeString()}`);
 	};
 
 	onMount(async () => {
@@ -167,35 +229,42 @@
 		surface = createWebGLSurface(ck, canvas);
 		skCanvas = surface?.getCanvas() ?? null;
 
-		// Load initial shapes from backend API (or static test JSON for now)
-		try {
-			// TODO: switch to a real backend endpoint (e.g. /api/mock_data) later
-			const response = await fetch('/test_data/stress_text_mock_data.json');
-			if (response.ok) {
-				const data = (await response.json()) as Shape[];
-				mock_data = data;
-			} else {
-				console.error('Failed to fetch mock data', response.status);
-			}
-		} catch (error) {
-			console.error('Error fetching mock data', error);
+		// Load initial document from backend API (or static test JSON for now)
+		// TODO: switch to a real backend endpoint (e.g. /api/document) later
+		document = await loadDocument('/test_data/beautiful_mock_data.json');
+
+		// Ensure document is loaded before proceeding
+		if (!document || document.pages.length === 0) {
+			console.error('Document data not loaded');
+			document = createDefaultDocument();
+			currentPageIndex = 0;
 		}
 
-		// Load images for image shapes
-		mock_data = (await loadImageBinary(ck, mock_data as ImageShape[])) as Shape[];
+		// Wait for reactive statement to set page
+		await tick();
 
-		paints = createPaints(ck, page);
+		// Load the first page (reactive statement will handle it, but we ensure it happens)
+		if (document && document.pages.length > 0) {
+			await loadPage(0);
+		}
 
-		// Initialize cached paint and bounds for performance
+		if (!page) {
+			console.error('Page not available after document load');
+			return;
+		}
+
+		// Initialize cached paint for performance (lowOpacityPaint is created in loadPage via createPaints)
 		lowOpacityPaint = new ck.Paint();
 		lowOpacityPaint.setAlphaf(0.5); // 50% opacity
-		pageBounds = ck.XYWHRect(-page.width / 2, -page.height / 2, page.width, page.height);
+
+		// Mark as initialized so reactive statements can run
+		isInitialized = true;
 
 		cleanupEvents = bindEvents();
 		drawScene();
 
 		// Setup WebSocket connection for collaborative messaging / presence.
-		// setupWebSocket();
+		setupWebSocket();
 	});
 
 	onDestroy(() => {
@@ -205,8 +274,8 @@
 			cancelAnimationFrame(animationFrameId);
 		}
 
-		if (hoverCheckTimeout !== null) {
-			clearTimeout(hoverCheckTimeout);
+		if (hoverCheckTimeout.value !== null) {
+			clearTimeout(hoverCheckTimeout.value);
 		}
 
 		resetSelectedShape(selectedShape);
@@ -221,51 +290,57 @@
 	/**
 	 * Updates cursor style based on current state
 	 */
-	const updateCursor = () => {
-		// If hovering over rotate circle of selected shape, use grab cursor
-		if (hoverState.isHoveringRotateCircle && isValidShapeIndex(selectedShape.index)) {
-			canvasCursor = mouseState.isMouseDown ? CURSOR_GRABBING : CURSOR_GRAB;
-			return;
-		}
-
-		let resizeDirection: ReturnType<typeof getCornerDirection> | null = null;
-		let rotation: number | null = null;
-
-		if (hoverState.resizeCorner !== null && isValidShapeIndex(selectedShape.index)) {
-			const selectedShapeData = mock_data[selectedShape.index];
-			rotation = selectedShapeData.rotate ?? null;
-			resizeDirection = getCornerDirection(hoverState.resizeCorner, selectedShapeData, rotation);
-		}
-
-		canvasCursor = getCursorStyle({
-			isPanning: cameraState.isPanning,
-			isMouseDown: mouseState.isMouseDown,
-			isDragging: mouseState.isDragging,
-			hoveredResizeCorner: hoverState.resizeCorner,
-			resizeDirection,
-			hasHoveredShape: hoverState.shapeIndex !== INVALID_INDEX,
-			rotation
-		});
+	const updateCursorStyle = () => {
+		const context = createEventHandlerContext();
+		updateCursor(context);
 	};
 
 	/**
-	 * Validates and cleans up selected shape index
+	 * Creates event handler context
 	 */
-	const validateSelectedShape = () => {
-		if (
-			selectedShape.index !== INVALID_INDEX &&
-			(selectedShape.index >= mock_data.length || !mock_data[selectedShape.index])
-		) {
-			resetSelectedShape(selectedShape);
-			resetHoverState(hoverState);
-		}
-	};
-
-	/**
-	 * Checks if a shape index is valid
-	 */
-	const isValidShapeIndex = (index: number): boolean => {
-		return index !== INVALID_INDEX && index < mock_data.length && mock_data[index] !== undefined;
+	const createEventHandlerContext = (): EventHandlerContext => {
+		return {
+			canvas,
+			editor,
+			shapes,
+			cameraState,
+			mouseState,
+			hoverState,
+			selectedShape,
+			resizingCorner,
+			resizeStartState,
+			rotationStartState,
+			isValidShapeIndex,
+			onCursorUpdate: (cursor: string) => {
+				canvasCursor = cursor;
+			},
+			onScheduleDraw: scheduleDraw,
+			onPanning: (deltaX: number, deltaY: number) => {
+				cameraState.panX += deltaX;
+				cameraState.panY += deltaY;
+			},
+			onShapeDrag: (shapeIndex: number, deltaX: number, deltaY: number) => {
+				const draggedShape = shapes[shapeIndex];
+				draggedShape.x += deltaX;
+				draggedShape.y += deltaY;
+			},
+			onShapeResize: (shapeIndex: number, x: number, y: number, width: number, height: number) => {
+				const shape = shapes[shapeIndex];
+				shape.x = x;
+				shape.y = y;
+				shape.width = width;
+				shape.height = height;
+			},
+			onShapeRotate: (shapeIndex: number, rotation: number) => {
+				const shape = shapes[shapeIndex];
+				shape.rotate = rotation;
+			},
+			onSelectionChange: (shapeIndex: number) => {
+				selectedShape.index = shapeIndex;
+				selectedShape.rendered = false;
+			},
+			onSelectionClear: clearSelection
+		};
 	};
 
 	/**
@@ -273,7 +348,7 @@
 	 */
 	const clearHoverState = () => {
 		resetHoverState(hoverState);
-		updateCursor();
+		updateCursorStyle();
 		scheduleDraw();
 	};
 
@@ -287,6 +362,26 @@
 		resizeStartState = null;
 		rotationStartState = null;
 		scheduleDraw();
+	};
+
+	/**
+	 * Checks if a shape index is valid
+	 */
+	const isValidShapeIndex = (index: number): boolean => {
+		return index !== INVALID_INDEX && index < shapes.length && shapes[index] !== undefined;
+	};
+
+	/**
+	 * Validates and cleans up selected shape index
+	 */
+	const validateSelectedShape = () => {
+		if (
+			selectedShape.index !== INVALID_INDEX &&
+			(selectedShape.index >= shapes.length || !shapes[selectedShape.index])
+		) {
+			resetSelectedShape(selectedShape);
+			resetHoverState(hoverState);
+		}
 	};
 
 	// ==================== Rendering ====================
@@ -304,559 +399,93 @@
 		}
 	};
 
-	// ==================== Camera Controls ====================
+	// ==================== Rendering ====================
 
 	/**
-	 * Handles camera panning
+	 * Creates render context for scene rendering
 	 */
-	const handlePanning = (event: MouseEvent) => {
-		const { x: currentMouseX, y: currentMouseY } = getMousePosition(event, canvas);
-		const deltaX = currentMouseX - mouseState.lastMouseX;
-		const deltaY = currentMouseY - mouseState.lastMouseY;
-
-		cameraState.panX += deltaX;
-		cameraState.panY += deltaY;
-
-		mouseState.lastMouseX = currentMouseX;
-		mouseState.lastMouseY = currentMouseY;
-
-		scheduleDraw();
-	};
-
-	// Draws the selected shape preview (full image at low opacity, outside page bounds).
-	const drawSelectedShapePreview = () => {
-		if (!skCanvas || !ck || !lowOpacityPaint) return;
-
-		const selectedIndex = selectedShape.index;
-		const hasSelectedShape = isValidShapeIndex(selectedIndex);
-		if (!hasSelectedShape) return;
-
-		const shape = mock_data[selectedIndex];
-		if (shape.kind !== 'image' || !shape.image) return;
-
-		let center: { x: number; y: number } | null = null;
-		if (shape.rotate !== null && shape.rotate !== 0) {
-			center = getShapeCenter(shape);
+	const createRenderContext = (): RenderContext => {
+		if (!skCanvas || !ck || !paints || !lowOpacityPaint || !pageBounds || !fontMgr || !page) {
+			throw new Error('Render context not ready');
 		}
 
-		skCanvas.save();
-		if (center) {
-			skCanvas.rotate(shape.rotate!, center.x, center.y);
-		}
-
-		const src = ck.XYWHRect(0, 0, shape.image.width(), shape.image.height());
-		const dst = ck.XYWHRect(shape.x, shape.y, shape.width, shape.height);
-		skCanvas.drawImageRect(shape.image, src, dst, lowOpacityPaint);
-
-		skCanvas.restore();
-	};
-
-	// Draws all shapes (images and text) within the page clip.
-	const drawAllShapes = (viewport: ReturnType<typeof calculateViewport>, now: number) => {
-		if (!skCanvas || !ck || !paints || !pageBounds || !fontMgr) return;
-
-		// Clip to page bounds
-		skCanvas.save();
-		skCanvas.clipRect(pageBounds, ck.ClipOp.Intersect, true);
-
-		let hasAnimatingImages = false;
-
-		for (let i = 0; i < mock_data.length; i++) {
-			const shape = mock_data[i];
-
-			// Viewport culling - skip if shape is completely outside viewport
-			if (!isRectVisible(shape.x, shape.y, shape.width, shape.height, viewport)) {
-				continue;
-			}
-
-			// Images
-			if (shape.kind === 'image') {
-				if (!shape.image) continue;
-
-				skCanvas.save();
-				if (shape.rotate !== null && shape.rotate !== 0) {
-					const center = getShapeCenter(shape);
-					skCanvas.rotate(shape.rotate, center.x, center.y);
-				}
-
-				// Wipe animation for images: vertically reveal from top to bottom
-				const imageShape = shape;
-				if (imageShape.fadeInStart == null) {
-					imageShape.fadeInStart = now;
-				}
-				const elapsed = now - imageShape.fadeInStart;
-				const progress = Math.max(0, Math.min(1, elapsed / IMAGE_WIPE_DURATION));
-
-				if (progress < 1) {
-					hasAnimatingImages = true;
-				}
-
-				// Compute source and destination rects based on progress (wipe height)
-				const fullWidth = imageShape.image!.width();
-				const fullHeight = imageShape.image!.height();
-				const srcHeight = fullHeight * progress;
-				const dstHeight = imageShape.height * progress;
-
-				if (srcHeight > 0 && dstHeight > 0) {
-					const src = ck.XYWHRect(0, 0, fullWidth, srcHeight);
-					const dst = ck.XYWHRect(imageShape.x, imageShape.y, imageShape.width, dstHeight);
-					skCanvas.drawImageRect(imageShape.image!, src, dst, paints.image);
-				}
-
-				skCanvas.restore();
-			}
-
-			// Text
-			if (shape.kind === 'text') {
-				skCanvas.save();
-				if (shape.rotate !== null && shape.rotate !== 0) {
-					const center = getShapeCenter(shape);
-					skCanvas.rotate(shape.rotate, center.x, center.y);
-				}
-				drawTextShape(ck, skCanvas, fontMgr, shape);
-				skCanvas.restore();
-			}
-		}
-
-		// Restore clipping so borders can extend beyond page bounds if needed
-		skCanvas.restore();
-
-		// If any image is still mid-fade, schedule another frame to continue the animation.
-		if (hasAnimatingImages) {
-			scheduleDraw();
-		}
-	};
-
-	// Draws hover and selection borders on top of all shapes.
-	const drawShapeOverlays = () => {
-		if (!skCanvas || !ck || !paints) return;
-
-		// Hover border (when not selected)
-		if (isValidShapeIndex(hoverState.shapeIndex) && hoverState.shapeIndex !== selectedShape.index) {
-			const hoveredShape = mock_data[hoverState.shapeIndex];
-
-			skCanvas.save();
-			if (hoveredShape.rotate !== null && hoveredShape.rotate !== 0) {
-				const center = getShapeCenter(hoveredShape);
-				skCanvas.rotate(hoveredShape.rotate, center.x, center.y);
-			}
-
-			drawHoverBorder(
-				skCanvas,
-				ck,
-				hoveredShape.x,
-				hoveredShape.y,
-				hoveredShape.width,
-				hoveredShape.height,
-				paints.hover,
-				cameraState.zoom
-			);
-
-			skCanvas.restore();
-		}
-
-		// Selected border
-		const selectedIndex = selectedShape.index;
-		const hasSelectedShape = isValidShapeIndex(selectedIndex);
-		if (!hasSelectedShape || selectedShape.rendered === true) return;
-
-		const shape = mock_data[selectedIndex];
-		let center: { x: number; y: number } | null = null;
-
-		if (shape.rotate !== null && shape.rotate !== 0) {
-			center = getShapeCenter(shape);
-		}
-
-		skCanvas.save();
-		if (center) {
-			skCanvas.rotate(shape.rotate!, center.x, center.y);
-		}
-
-		drawSelectedBorder(
+		return {
 			skCanvas,
 			ck,
-			shape.x,
-			shape.y,
-			shape.width,
-			shape.height,
-			paints.tool,
-			cameraState.zoom
-		);
-
-		skCanvas.restore();
+			paints,
+			lowOpacityPaint,
+			pageBounds,
+			fontMgr,
+			page,
+			shapes,
+			selectedShape,
+			hoverState,
+			cameraState,
+			canvasWidth,
+			canvasHeight,
+			devicePixelRatio: devicePixelRatioValue,
+			surface,
+			isValidShapeIndex
+		};
 	};
 
 	const drawScene = () => {
-		if (!skCanvas || !ck || !paints || !lowOpacityPaint || !pageBounds || !fontMgr) return;
-
-		skCanvas.clear(ck.Color(0, 0, 0, 1.0));
-		skCanvas.save();
-
-		// First scale by devicePixelRatio so all world/screen math can stay in CSS pixels
-		skCanvas.scale(devicePixelRatioValue, devicePixelRatioValue);
-
-		// Then apply camera pan/zoom in logical (CSS) pixels
-		skCanvas.translate(cameraState.panX, cameraState.panY);
-		skCanvas.scale(cameraState.zoom, cameraState.zoom);
-
-		// Calculate visible viewport for culling
-		const viewport = calculateViewport(canvasWidth, canvasHeight, cameraState);
-		const now = performance.now();
-
-		// Draw background
-		drawBackground(skCanvas, ck, page, paints.background);
+		if (!skCanvas || !ck || !paints || !lowOpacityPaint || !pageBounds || !fontMgr || !page) return;
 
 		// Validate selected shape before drawing
 		validateSelectedShape();
 
-		// Draw selected shape preview (full image with low opacity)
-		drawSelectedShapePreview();
+		try {
+			const renderContext = createRenderContext();
+			const isAnimating = renderScene(renderContext, scheduleDraw);
 
-		// Draw all shapes inside page bounds
-		drawAllShapes(viewport, now);
-
-		// Draw hover + selection borders on top
-		drawShapeOverlays();
-
-		skCanvas.restore();
-		surface?.flush();
-	};
-
-	/**
-	 * Handles mouse wheel zoom
-	 */
-	const handleWheel = (event: WheelEvent) => {
-		event.preventDefault();
-
-		const { x: mouseX, y: mouseY } = getMousePosition(event, canvas);
-		const zoomFactor = event.deltaY > 0 ? ZOOM_OUT_FACTOR : ZOOM_IN_FACTOR;
-		const newZoom = Math.max(
-			MIN_CAMERA_ZOOM,
-			Math.min(MAX_CAMERA_ZOOM, cameraState.zoom * zoomFactor)
-		);
-
-		// Zoom towards mouse position - adjust pan to keep the point under mouse fixed
-		const zoomChange = newZoom / cameraState.zoom;
-		cameraState.panX = mouseX - (mouseX - cameraState.panX) * zoomChange;
-		cameraState.panY = mouseY - (mouseY - cameraState.panY) * zoomChange;
-
-		cameraState.zoom = newZoom;
-		scheduleDraw();
-	};
-
-	// ==================== Mouse Event Handlers ====================
-
-	/**
-	 * Handles shape dragging
-	 */
-	const handleShapeDragging = (event: MouseEvent) => {
-		event.preventDefault();
-
-		const { x: currentMouseX, y: currentMouseY } = getMousePosition(event, canvas);
-		const currentWorldPos = screenToWorld(currentMouseX, currentMouseY, cameraState);
-		const lastWorldPos = screenToWorld(mouseState.lastMouseX, mouseState.lastMouseY, cameraState);
-
-		const deltaX = currentWorldPos.x - lastWorldPos.x;
-		const deltaY = currentWorldPos.y - lastWorldPos.y;
-
-		const draggedShape = mock_data[hoverState.shapeIndex];
-		draggedShape.x += deltaX;
-		draggedShape.y += deltaY;
-
-		mouseState.lastMouseX = currentMouseX;
-		mouseState.lastMouseY = currentMouseY;
-
-		updateCursor();
-		scheduleDraw();
-	};
-
-	// ==================== Resize Handlers ====================
-
-	/**
-	 * Handles shape rotation
-	 */
-	const handleShapeRotation = (event: MouseEvent) => {
-		// Only rotate if we have rotation state and a valid selected shape
-		if (!rotationStartState || !isValidShapeIndex(selectedShape.index)) {
-			// Clear rotation state if shape is no longer valid
-			if (!isValidShapeIndex(selectedShape.index)) {
-				rotationStartState = null;
+			// Check if animations just completed (was animating, now not animating)
+			if (isAutoPlaying && wasAnimating && !isAnimating) {
+				// Animations just completed, advance to next page
+				if (document && document.pages.length > 0) {
+					const nextPageIndex = (currentPageIndex + 1) % document.pages.length;
+					switchToPage(nextPageIndex);
+					// loadPage will handle starting animations on the new page
+				}
+			} else {
+				wasAnimating = isAnimating;
 			}
-			return;
-		}
-
-		event.preventDefault();
-
-		const { x: currentMouseX, y: currentMouseY } = getMousePosition(event, canvas);
-		const currentWorldPos = screenToWorld(currentMouseX, currentMouseY, cameraState);
-
-		// Ensure we're rotating the selected shape
-		const shape = mock_data[selectedShape.index];
-		if (!shape) {
-			rotationStartState = null;
-			return;
-		}
-
-		const shapeCenter = getShapeCenter(shape);
-		shape.rotate = calculateRotation(rotationStartState, currentWorldPos, shapeCenter);
-
-		mouseState.lastMouseX = currentMouseX;
-		mouseState.lastMouseY = currentMouseY;
-
-		scheduleDraw();
-	};
-
-	/**
-	 * Handles shape resizing while maintaining aspect ratio
-	 */
-	const handleShapeResizing = (event: MouseEvent) => {
-		if (!resizeStartState || !resizingCorner || !isValidShapeIndex(selectedShape.index)) {
-			return;
-		}
-
-		event.preventDefault();
-
-		const { x: currentMouseX, y: currentMouseY } = getMousePosition(event, canvas);
-		const currentWorldPos = screenToWorld(currentMouseX, currentMouseY, cameraState);
-		const shape = mock_data[selectedShape.index];
-		const rotation = shape.rotate ?? null;
-
-		// Calculate new dimensions and position
-		const { x, y, width, height } = calculateResize(
-			resizeStartState,
-			resizingCorner,
-			currentWorldPos,
-			rotation
-		);
-
-		// Update shape
-		shape.x = x;
-		shape.y = y;
-		shape.width = width;
-		shape.height = height;
-
-		mouseState.lastMouseX = currentMouseX;
-		mouseState.lastMouseY = currentMouseY;
-
-		scheduleDraw();
-	};
-
-	/**
-	 * Handles hover detection with throttling
-	 */
-	const handleHoverDetection = (event: MouseEvent) => {
-		if (hoverCheckTimeout !== null) {
-			return; // Skip if already scheduled
-		}
-
-		hoverCheckTimeout = window.setTimeout(() => {
-			hoverCheckTimeout = null;
-
-			if (!editor) return;
-
-			const { x, y } = getMousePosition(event, editor);
-			const worldPos = screenToWorld(x, y, cameraState);
-
-			// Detect what the mouse is hovering over
-			const newHoverState = detectHover(
-				worldPos,
-				mock_data,
-				selectedShape.index,
-				cameraState.zoom,
-				isValidShapeIndex
-			);
-
-			// Update hover state if changed
-			const needsUpdate = updateHoverState(hoverState, newHoverState);
-
-			if (needsUpdate) {
-				updateCursor();
-				scheduleDraw();
-			}
-		}, HOVER_CHECK_DELAY);
-	};
-
-	/**
-	 * Handles mouse move events
-	 */
-	const handleMouseMove = (event: MouseEvent) => {
-		// Handle camera panning
-		if (cameraState.isPanning && mouseState.isMouseDown) {
-			event.preventDefault();
-			updateCursor();
-			handlePanning(event);
-			return;
-		}
-
-		// Handle shape rotation (highest priority)
-		if (rotationStartState !== null && mouseState.isMouseDown) {
-			handleShapeRotation(event);
-			return;
-		}
-
-		// Handle shape resizing (priority over dragging)
-		if (resizingCorner !== null && mouseState.isMouseDown) {
-			handleShapeResizing(event);
-			return;
-		}
-
-		// Handle shape dragging
-		if (mouseState.isDragging && isValidShapeIndex(hoverState.shapeIndex)) {
-			handleShapeDragging(event);
-			return;
-		}
-
-		// Handle hover detection
-		handleHoverDetection(event);
-	};
-
-	/**
-	 * Initializes mouse state for dragging
-	 */
-	const initializeMouseDrag = (x: number, y: number) => {
-		mouseState.isMouseDown = true;
-		mouseState.lastMouseX = x;
-		mouseState.lastMouseY = y;
-		updateCursor();
-	};
-
-	/**
-	 * Handles mouse down events
-	 */
-	const handleMouseDown = (event: MouseEvent) => {
-		event.preventDefault();
-		const { x, y } = getMousePosition(event, canvas);
-
-		if (cameraState.isPanning) {
-			initializeMouseDrag(x, y);
-			return; // Don't handle shape selection while panning
-		}
-
-		// Check if clicking on rotate circle (highest priority)
-		if (hoverState.isHoveringRotateCircle && isValidShapeIndex(selectedShape.index)) {
-			const shape = mock_data[selectedShape.index];
-			const worldPos = screenToWorld(x, y, cameraState);
-			rotationStartState = initializeRotation(shape, worldPos);
-
-			mouseState.isMouseDown = true;
-			mouseState.lastMouseX = x;
-			mouseState.lastMouseY = y;
-			updateCursor();
-			return;
-		}
-
-		// Check if clicking on a resize corner
-		if (hoverState.resizeCorner !== null && isValidShapeIndex(selectedShape.index)) {
-			const shape = mock_data[selectedShape.index];
-			const worldPos = screenToWorld(x, y, cameraState);
-
-			resizingCorner = hoverState.resizeCorner;
-			resizeStartState = initializeResize(shape, worldPos);
-
-			mouseState.isMouseDown = true;
-			mouseState.lastMouseX = x;
-			mouseState.lastMouseY = y;
-			updateCursor();
-			return;
-		}
-
-		// Handle shape selection/dragging
-		// Directly detect shape at click point for immediate selection
-		const worldPos = screenToWorld(x, y, cameraState);
-		const clickedShapeIndex = findShapeAtPoint(worldPos, mock_data);
-
-		if (isValidShapeIndex(clickedShapeIndex)) {
-			mouseState.isDragging = true;
-			initializeMouseDrag(x, y);
-			// Clear resize corner hover when selection changes
-			if (selectedShape.index !== INVALID_INDEX && selectedShape.index !== clickedShapeIndex) {
-				resetHoverState(hoverState);
-			}
-			selectedShape.index = clickedShapeIndex;
-			selectedShape.rendered = false;
-		} else {
-			clearSelection();
-		}
-
-		scheduleDraw();
-	};
-
-	/**
-	 * Handles mouse up events
-	 */
-	const handleMouseUp = (event: MouseEvent) => {
-		// Clear rotation state
-		if (rotationStartState !== null) {
-			rotationStartState = null;
-		}
-		if (mouseState.isMouseDown) {
-			event.preventDefault();
-			mouseState.isMouseDown = false;
-			mouseState.isDragging = false;
-			resizingCorner = null;
-			resizeStartState = null;
-			updateCursor();
+		} catch (error) {
+			console.error('Error rendering scene:', error);
 		}
 	};
 
+	// ==================== Event Handlers ====================
+
 	/**
-	 * Handles mouse leave events
+	 * Wraps event handlers to use extracted modules
 	 */
-	const handleMouseLeave = (event: MouseEvent) => {
-		if (mouseState.isMouseDown) {
-			mouseState.isMouseDown = false;
-			mouseState.isDragging = false;
-			resizingCorner = null;
-			resizeStartState = null;
-			rotationStartState = null;
-			updateCursor();
-		}
-
-		if (hoverCheckTimeout !== null) {
-			clearTimeout(hoverCheckTimeout);
-			hoverCheckTimeout = null;
-		}
-
-		clearHoverState();
+	const handleWheelEvent = (event: WheelEvent) => {
+		handleWheel(event, createEventHandlerContext());
 	};
 
-	// ==================== Keyboard Event Handlers ====================
-
-	/**
-	 * Checks if event should be ignored (e.g., typing in input field)
-	 */
-	const shouldIgnoreKeyboardEvent = (event: KeyboardEvent): boolean => {
-		return event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement;
+	const handleMouseMoveEvent = (event: MouseEvent) => {
+		handleMouseMove(event, createEventHandlerContext(), hoverCheckTimeout);
 	};
 
-	/**
-	 * Handles key down events
-	 */
-	const handleKeyDown = (event: KeyboardEvent) => {
-		if (shouldIgnoreKeyboardEvent(event)) {
-			return;
-		}
-
-		if ((event.code === 'Space' || event.key === ' ') && !cameraState.isPanning) {
-			event.preventDefault();
-			cameraState.isPanning = true;
-			updateCursor();
-		}
-
-		if (event.code === 'Escape' || event.key === 'Escape') {
-			clearSelection();
-		}
+	const handleMouseDownEvent = (event: MouseEvent) => {
+		handleMouseDown(event, createEventHandlerContext());
 	};
 
-	/**
-	 * Handles key up events
-	 */
-	const handleKeyUp = (event: KeyboardEvent) => {
-		if (event.code === 'Space' || event.key === ' ') {
-			event.preventDefault();
-			cameraState.isPanning = false;
-			updateCursor();
-		}
+	const handleMouseUpEvent = (event: MouseEvent) => {
+		handleMouseUp(event, createEventHandlerContext());
+	};
+
+	const handleMouseLeaveEvent = (event: MouseEvent) => {
+		handleMouseLeave(event, createEventHandlerContext(), hoverCheckTimeout);
+	};
+
+	const handleKeyDownEvent = (event: KeyboardEvent) => {
+		handleKeyDown(event, createEventHandlerContext());
+	};
+
+	const handleKeyUpEvent = (event: KeyboardEvent) => {
+		handleKeyUp(event, createEventHandlerContext());
 	};
 
 	// ==================== Window Event Handlers ====================
@@ -879,7 +508,10 @@
 		// Inform CanvasKit surface about the new backing-store size (if supported)
 		const maybeSurface: any = surface;
 		if (maybeSurface && typeof maybeSurface.resize === 'function') {
-			maybeSurface.resize(canvasWidth * devicePixelRatioValue, canvasHeight * devicePixelRatioValue);
+			maybeSurface.resize(
+				canvasWidth * devicePixelRatioValue,
+				canvasHeight * devicePixelRatioValue
+			);
 		}
 
 		scheduleDraw();
@@ -893,66 +525,152 @@
 	const bindEvents = () => {
 		// Window events
 		window.addEventListener('resize', handleResize);
-		window.addEventListener('mouseup', handleMouseUp);
-		window.addEventListener('keydown', handleKeyDown);
-		window.addEventListener('keyup', handleKeyUp);
+		window.addEventListener('mouseup', handleMouseUpEvent);
+		window.addEventListener('keydown', handleKeyDownEvent);
+		window.addEventListener('keyup', handleKeyUpEvent);
 
 		// Canvas events
-		canvas.addEventListener('wheel', handleWheel, { passive: false });
-		canvas.addEventListener('mousemove', handleMouseMove);
-		canvas.addEventListener('mousedown', handleMouseDown);
-		canvas.addEventListener('mouseup', handleMouseUp);
-		canvas.addEventListener('mouseleave', handleMouseLeave);
+		canvas.addEventListener('wheel', handleWheelEvent, { passive: false });
+		canvas.addEventListener('mousemove', handleMouseMoveEvent);
+		canvas.addEventListener('mousedown', handleMouseDownEvent);
+		canvas.addEventListener('mouseup', handleMouseUpEvent);
+		canvas.addEventListener('mouseleave', handleMouseLeaveEvent);
 
 		// Return cleanup function
 		return () => {
 			window.removeEventListener('resize', handleResize);
-			window.removeEventListener('mouseup', handleMouseUp);
-			window.removeEventListener('keydown', handleKeyDown);
-			window.removeEventListener('keyup', handleKeyUp);
-			canvas.removeEventListener('wheel', handleWheel);
-			canvas.removeEventListener('mousemove', handleMouseMove);
-			canvas.removeEventListener('mousedown', handleMouseDown);
-			canvas.removeEventListener('mouseup', handleMouseUp);
-			canvas.removeEventListener('mouseleave', handleMouseLeave);
+			window.removeEventListener('mouseup', handleMouseUpEvent);
+			window.removeEventListener('keydown', handleKeyDownEvent);
+			window.removeEventListener('keyup', handleKeyUpEvent);
+			canvas.removeEventListener('wheel', handleWheelEvent);
+			canvas.removeEventListener('mousemove', handleMouseMoveEvent);
+			canvas.removeEventListener('mousedown', handleMouseDownEvent);
+			canvas.removeEventListener('mouseup', handleMouseUpEvent);
+			canvas.removeEventListener('mouseleave', handleMouseLeaveEvent);
 		};
 	};
 </script>
 
-<div class="flex">
-	<div class="w-[260px] p-4 space-y-2 text-sm bg-zinc-900 text-zinc-100">
-		<div class="font-semibold">WebSocket debug</div>
-		<button
-			class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-xs"
-			on:click={sendTestMessage}
-		>
-			Send test message
-		</button>
+<div class="flex h-screen">
+	<div class="w-[280px] flex flex-col justify-between overflow-hidden px-5 py-5">
+		<!-- WebSocket Debug -->
+		<div class="space-y-3">
+			<div class="flex items-center justify-between">
+				<h3 class="text-xs block font-medium text-zinc-400 uppercase">WebSocket</h3>
+				{#if wsMessages.length > 0}
+					<span
+						class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600/20 text-emerald-400 font-medium"
+					>
+						{wsMessages.length}
+					</span>
+				{/if}
+			</div>
 
-		<button
-			class="mt-4 px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-xs"
-			on:click={triggerImageWipe}
-		>
-			Replay image wipe
-		</button>
-
-		<div class="mt-2 max-h-64 overflow-auto rounded bg-black/40 p-2 text-[11px] leading-snug">
-			{#if wsMessages.length === 0}
-				<div class="text-zinc-500">No messages yet</div>
-			{:else}
-				{#each wsMessages as m, i (i)}
-					<div>{m}</div>
-				{/each}
-			{/if}
+			<!-- Messages Display -->
+			<div class="space-y-1">
+				<div class="text-[10px] text-zinc-500 uppercase tracking-wide mb-2">Messages</div>
+				<div
+					class="max-h-64 overflow-y-auto rounded-lg bg-zinc-950/50 border border-zinc-800 p-3 space-y-1.5"
+				>
+					{#if wsMessages.length === 0}
+						<div class="text-xs text-zinc-600 italic text-center py-4">No messages yet</div>
+					{:else}
+						{#each wsMessages as m, i (i)}
+							<div
+								class="text-[11px] font-mono text-zinc-300 bg-zinc-900/50 rounded px-2 py-1.5 border-l-2 border-zinc-700 hover:border-zinc-600 transition-colors"
+							>
+								<span class="text-zinc-500 text-[10px] mr-2">#{i + 1}</span>
+								<span class="break-words">{m}</span>
+							</div>
+						{/each}
+					{/if}
+				</div>
+			</div>
+		</div>
+		<!-- Export Controls -->
+		<div class="mb-4">
+			<h3 class="block text-xs font-medium text-zinc-400 uppercase mb-2">Animation</h3>
+			<button
+				class="w-full px-3 py-2 rounded-md {isAutoPlaying
+					? 'bg-red-600 hover:bg-red-500 active:bg-red-700'
+					: 'bg-sky-600 hover:bg-sky-500 active:bg-sky-700'} text-xs font-medium text-white transition-colors duration-150 shadow-sm hover:shadow"
+				on:click={toggleAutoPlay}
+			>
+				{isAutoPlaying ? 'Stop Auto-Play' : 'Play All Animations'}
+			</button>
 		</div>
 	</div>
 
-	<div
-		class="editor w-full h-screen overflow-hidden"
-		style="cursor: {canvasCursor}"
-		bind:this={editor}
-	>
-		<canvas id="canvas" bind:this={canvas}></canvas>
+	<div class="flex flex-col flex-1 overflow-hidden">
+		<!-- Main Canvas Area -->
+		<div
+			class="editor flex-1 overflow-hidden bg-zinc-100"
+			style="cursor: {canvasCursor}"
+			bind:this={editor}
+		>
+			<canvas id="canvas" bind:this={canvas}></canvas>
+		</div>
+
+		<!-- Timeline/Page View -->
+		<div class="h-[120px] bg-white border-t border-zinc-200 flex flex-col">
+			<!-- Timeline Header with Playhead -->
+			<div class="relative flex-1 flex items-center px-4">
+				<!-- Play/Stop Toggle Button -->
+				<button
+					class="w-10 h-10 rounded bg-zinc-200 hover:bg-zinc-300 flex items-center justify-center mr-4 transition-colors"
+					on:click={toggleAutoPlay}
+					title={isAutoPlaying ? 'Stop auto-play' : 'Play animations'}
+				>
+					{#if isAutoPlaying}
+						<!-- Stop Icon -->
+						<svg class="w-5 h-5 text-zinc-700" fill="currentColor" viewBox="0 0 20 20">
+							<path
+								fill-rule="evenodd"
+								d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z"
+								clip-rule="evenodd"
+							/>
+						</svg>
+					{:else}
+						<!-- Play Icon -->
+						<svg class="w-5 h-5 text-zinc-700 ml-0.5" fill="currentColor" viewBox="0 0 20 20">
+							<path
+								fill-rule="evenodd"
+								d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+								clip-rule="evenodd"
+							/>
+						</svg>
+					{/if}
+				</button>
+
+				<!-- Page Thumbnails -->
+				<div class="flex-1 flex items-center gap-3 overflow-x-auto p-2">
+					{#if document}
+						{#each document.pages as p, i (p.id)}
+							<button
+								class="relative w-32 h-24 rounded border-2 transition-all {currentPageIndex === i
+									? 'border-pink-500 scale-105'
+									: 'border-zinc-300 hover:border-zinc-400'}"
+								on:click={() => switchToPage(i)}
+								on:keydown={(e) => e.key === 'Enter' && switchToPage(i)}
+							>
+								<!-- Page Thumbnail Preview -->
+								<div
+									class="w-full h-full rounded bg-white flex items-center justify-center text-xs text-zinc-400"
+									style="background-color: rgb({p.background.color.r}, {p.background.color.g}, {p
+										.background.color.b})"
+								>
+									{#if p.shapes.length === 0}
+										<span>Page {i + 1}</span>
+									{:else}
+										<span class="text-zinc-600">{p.shapes.length} shapes</span>
+									{/if}
+								</div>
+							</button>
+						{/each}
+					{/if}
+				</div>
+			</div>
+		</div>
 	</div>
 </div>
 
