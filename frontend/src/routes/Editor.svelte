@@ -12,6 +12,7 @@
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { loadDocument, createDefaultDocument, loadPageImages } from '$lib/editor/document-loader';
 	import { drawScene as renderScene, type RenderContext } from '$lib/editor/scene-renderer';
+	import { drawLoadingScreen, type LoadingRenderContext } from '$lib/editor/loading-renderer';
 	import {
 		handleWheel,
 		handleMouseMove,
@@ -53,6 +54,9 @@
 	// Auto-play mode: automatically advance to next page after animations complete
 	let isAutoPlaying = false;
 	let wasAnimating = false;
+
+	// Loading state
+	let isLoading = true;
 
 	// Event handlers cleanup
 	let cleanupEvents: (() => void) | null = null;
@@ -222,12 +226,18 @@
 
 		ck = await initCanvasKit();
 
-		// Start loading font data and build a FontMgr for Paragraph / text rendering
-		preloadFonts();
-		fontMgr = await loadFonts(ck);
+		
 
 		surface = createWebGLSurface(ck, canvas);
 		skCanvas = surface?.getCanvas() ?? null;
+
+		// Start loading animation
+		isLoading = true;
+		startLoadingAnimation();
+
+		// Start loading font data and build a FontMgr for Paragraph / text rendering
+		preloadFonts();
+		fontMgr = await loadFonts(ck);
 
 		// Load initial document from backend API (or static test JSON for now)
 		// TODO: switch to a real backend endpoint (e.g. /api/document) later
@@ -239,6 +249,9 @@
 			document = createDefaultDocument();
 			currentPageIndex = 0;
 		}
+
+		// Stop loading animation
+		isLoading = false;
 
 		// Wait for reactive statement to set page
 		await tick();
@@ -272,6 +285,9 @@
 		ws?.close();
 		if (animationFrameId !== null) {
 			cancelAnimationFrame(animationFrameId);
+		}
+		if (loadingAnimationId !== null) {
+			cancelAnimationFrame(loadingAnimationId);
 		}
 
 		if (hoverCheckTimeout.value !== null) {
@@ -429,7 +445,56 @@
 		};
 	};
 
+	/**
+	 * Starts the loading animation loop
+	 */
+	let loadingAnimationId: number | null = null;
+	const startLoadingAnimation = () => {
+		if (loadingAnimationId !== null) return;
+
+		const animate = () => {
+			if (!isLoading || !skCanvas || !ck || !surface) {
+				loadingAnimationId = null;
+				return;
+			}
+
+			drawLoadingScreen(
+				{
+					skCanvas,
+					ck,
+					canvasWidth,
+					canvasHeight,
+					devicePixelRatio: devicePixelRatioValue,
+					surface
+				},
+				performance.now()
+			);
+
+			loadingAnimationId = requestAnimationFrame(animate);
+		};
+
+		loadingAnimationId = requestAnimationFrame(animate);
+	};
+
 	const drawScene = () => {
+		// Show loading screen if still loading
+		if (isLoading) {
+			if (skCanvas && ck && surface) {
+				drawLoadingScreen(
+					{
+						skCanvas,
+						ck,
+						canvasWidth,
+						canvasHeight,
+						devicePixelRatio: devicePixelRatioValue,
+						surface
+					},
+					performance.now()
+				);
+			}
+			return;
+		}
+
 		if (!skCanvas || !ck || !paints || !lowOpacityPaint || !pageBounds || !fontMgr || !page) return;
 
 		// Validate selected shape before drawing

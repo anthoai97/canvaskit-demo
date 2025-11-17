@@ -9,6 +9,7 @@ import { loadImageBinary } from '$lib/canvakit/image';
 export async function loadDocument(url: string): Promise<EditorDocument | null> {
 	try {
 		const response = await fetch(url);
+		await new Promise(resolve => setTimeout(resolve, 3000));
 		if (!response.ok) {
 			console.error('Failed to fetch document', response.status);
 			return null;
