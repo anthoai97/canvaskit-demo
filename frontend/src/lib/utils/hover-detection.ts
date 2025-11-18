@@ -58,7 +58,17 @@ export const detectHover = (
 
 	// Only check for shape hover if not hovering over rotate circle or resize corner
 	if (!result.isHoveringRotateCircle && result.resizeCorner === null) {
-		result.shapeIndex = findShapeAtPoint(worldPos, shapes);
+		const foundShapeIndex = findShapeAtPoint(worldPos, shapes);
+		// If hovering over the selected shape itself, don't set hover state
+		// This prevents the selection from being affected when hovering over the selected shape
+		// Only show hover state for other shapes
+		if (foundShapeIndex !== selectedShapeIndex) {
+			result.shapeIndex = foundShapeIndex;
+		} else {
+			// Keep hover state invalid when hovering over selected shape
+			// This ensures selection remains intact and visual feedback is correct
+			result.shapeIndex = INVALID_INDEX;
+		}
 	}
 
 	return result;

@@ -4,7 +4,7 @@
 	import { loadFonts, preloadFonts } from '$lib/canvakit/font';
 	import { DEFAULT_CAMERA_ZOOM, INVALID_INDEX } from '$lib/contants/const';
 	import { StableWebSocket } from '$lib/ws';
-	import { resetSelectedShape } from '$lib/types/editor';
+	import { resetSelectedShape, type ResizeState, type RotationState } from '$lib/types/editor';
 	import { resetHoverState } from '$lib/utils/hover-state';
 	import type { EditorDocument, EditorPage } from '$lib/types/page';
 	import type { Shape } from '$lib/types/shape';
@@ -13,7 +13,6 @@
 	import { loadDocument, createDefaultDocument, loadPageImages } from '$lib/editor/document-loader';
 	import { drawScene as renderScene, type RenderContext } from '$lib/editor/scene-renderer';
 	import { drawLoadingScreen, type LoadingRenderContext } from '$lib/editor/loading-renderer';
-	import { captureThumbnail } from '$lib/editor/thumbnail-capture';
 	import {
 		handleWheel,
 		handleMouseMove,
@@ -25,6 +24,13 @@
 		updateCursor,
 		type EventHandlerContext
 	} from '$lib/editor/event-handlers';
+	import {
+		generateShapesHash,
+		captureThumbnailLocal,
+		updatePageThumbnail,
+		scheduleBackgroundThumbnailProcessing,
+		getThumbnailCaptureDelay
+	} from '$lib/editor/thumbnail-manager';
 
 	// ==================== DOM References ====================
 	let editor: HTMLDivElement;
@@ -55,8 +61,8 @@
 	let hoverState = { shapeIndex: INVALID_INDEX, resizeCorner: null, isHoveringRotateCircle: false };
 	let selectedShape = { index: INVALID_INDEX, rendered: false };
 	let resizingCorner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | null = null;
-	let resizeStartState: any = null;
-	let rotationStartState: any = null;
+	let resizeStartState: ResizeState | null = null;
+	let rotationStartState: RotationState | null = null;
 
 	// ==================== Camera & Mouse State ====================
 	let cameraState = {
@@ -90,13 +96,12 @@
 	let isLoading = true;
 	let isInitialized = false;
 	let cleanupEvents: (() => void) | null = null;
-	let shapesHash: string = ''; // Track shapes state for thumbnail capture
+	
+	// ==================== Thumbnail State ====================
+	let shapesHash: string = '';
 	let isCapturingThumbnail = false;
 	let thumbnailCaptureTimeout: number | null = null;
-	let initialThumbnailTriggered = false; // Track if initial capture has been triggered for current page
-	let backgroundThumbnailQueue: number[] = []; // Queue of page indices to capture thumbnails for
-	let isProcessingBackgroundThumbnails = false;
-	let backgroundThumbnailsStarted = false; // Track if background processing has been started
+	let backgroundThumbnailsStarted = false;
 
 	// ==================== WebSocket State ====================
 	let ws: StableWebSocket | null = null;
@@ -182,9 +187,6 @@
 		paints = createPaints(ck, page);
 		pageBounds = ck.XYWHRect(-page.width / 2, -page.height / 2, page.width, page.height);
 
-		// Reset initial capture flag for new page
-		initialThumbnailTriggered = false;
-
 		// Reset shapes hash to trigger reactive statement
 		shapesHash = '';
 
@@ -244,18 +246,13 @@
 	 * Toggles auto-play mode: starts animations and auto-advance if stopped, stops if playing
 	 */
 	const toggleAutoPlay = () => {
-		
-		
-		// Restore original toggle logic
 		if (isAutoPlaying) {
-			// Stop auto-play
 			isAutoPlaying = false;
 			wasAnimating = false;
 		} else {
-			// Start auto-play
 			startShapeAnimations(shapes);
 			isAutoPlaying = true;
-			wasAnimating = true; // Assume we're starting animations
+			wasAnimating = true;
 			scheduleDraw();
 		}
 	};
@@ -305,7 +302,19 @@
 		backgroundThumbnailsStarted = false;
 	};
 
-	onMount(async () => {
+	/**
+	 * Initializes cached resources for performance
+	 */
+	const initializeCachedResources = () => {
+		if (!ck) return;
+		lowOpacityPaint = new ck.Paint();
+		lowOpacityPaint.setAlphaf(0.5);
+	};
+
+	/**
+	 * Main initialization function
+	 */
+	const initializeEditor = async () => {
 		updateCanvasDimensions();
 		await tick();
 
@@ -313,20 +322,15 @@
 		cameraState.panY = centerY;
 
 		await initializeCanvas();
-
-		// Start loading animation
 		isLoading = true;
 		startLoadingAnimation();
 
 		await initializeFonts();
 		await initializeDocument();
-
-		// Stop loading animation
 		isLoading = false;
 
 		await tick();
 
-		// Load the first page
 		if (document && document.pages.length > 0) {
 			await loadPage(0);
 		}
@@ -336,18 +340,15 @@
 			return;
 		}
 
-		// Initialize cached paint for performance
-		lowOpacityPaint = new ck.Paint();
-		lowOpacityPaint.setAlphaf(0.5); // 50% opacity
-
-		// Mark as initialized so reactive statements can run
+		initializeCachedResources();
 		isInitialized = true;
 
 		cleanupEvents = bindEvents();
 		drawScene();
-
 		setupWebSocket();
-	});
+	};
+
+	onMount(initializeEditor);
 
 	onDestroy(() => {
 		cleanupEvents?.();
@@ -466,6 +467,7 @@
 				shape.width = width;
 				shape.height = height;
 				// Trigger reactivity by reassigning shapes array
+				console.log('onShapeResize: Shapes changed, scheduling capture');
 				shapes = [...shapes];
 				if (updateShapesHash()) {
 					scheduleThumbnailCapture();
@@ -484,7 +486,16 @@
 				selectedShape.index = shapeIndex;
 				selectedShape.rendered = false;
 			},
-			onSelectionClear: clearSelection
+			onSelectionClear: clearSelection,
+			onResizingCornerChange: (corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | null) => {
+				resizingCorner = corner;
+			},
+			onResizeStartStateChange: (state: ResizeState | null) => {
+				resizeStartState = state;
+			},
+			onRotationStartStateChange: (state: RotationState | null) => {
+				rotationStartState = state;
+			}
 		};
 	};
 
@@ -570,18 +581,13 @@
 			const renderContext = createRenderContext();
 			const isAnimating = renderScene(renderContext, scheduleDraw);
 
-			// Check if animations just completed (was animating, now not animating)
 			const animationsJustCompleted = wasAnimating && !isAnimating;
 
-			if (isAutoPlaying && animationsJustCompleted) {
-				// Animations just completed, advance to next page
-				if (document && document.pages.length > 0) {
-					const nextPageIndex = (currentPageIndex + 1) % document.pages.length;
-					switchToPage(nextPageIndex);
-				}
+			if (isAutoPlaying && animationsJustCompleted && document && document.pages.length > 0) {
+				const nextPageIndex = (currentPageIndex + 1) % document.pages.length;
+				switchToPage(nextPageIndex);
 			}
 
-		
 			wasAnimating = isAnimating;
 		} catch (error) {
 			console.error('Error rendering scene:', error);
@@ -590,33 +596,15 @@
 
 	// ==================== Event Handlers ====================
 
-	const handleWheelEvent = (event: WheelEvent) => {
-		handleWheel(event, createEventHandlerContext());
-	};
+	const createEventContext = () => createEventHandlerContext();
 
-	const handleMouseMoveEvent = (event: MouseEvent) => {
-		handleMouseMove(event, createEventHandlerContext(), hoverCheckTimeout);
-	};
-
-	const handleMouseDownEvent = (event: MouseEvent) => {
-		handleMouseDown(event, createEventHandlerContext());
-	};
-
-	const handleMouseUpEvent = (event: MouseEvent) => {
-		handleMouseUp(event, createEventHandlerContext());
-	};
-
-	const handleMouseLeaveEvent = (event: MouseEvent) => {
-		handleMouseLeave(event, createEventHandlerContext(), hoverCheckTimeout);
-	};
-
-	const handleKeyDownEvent = (event: KeyboardEvent) => {
-		handleKeyDown(event, createEventHandlerContext());
-	};
-
-	const handleKeyUpEvent = (event: KeyboardEvent) => {
-		handleKeyUp(event, createEventHandlerContext());
-	};
+	const handleWheelEvent = (event: WheelEvent) => handleWheel(event, createEventContext());
+	const handleMouseMoveEvent = (event: MouseEvent) => handleMouseMove(event, createEventContext(), hoverCheckTimeout);
+	const handleMouseDownEvent = (event: MouseEvent) => handleMouseDown(event, createEventContext());
+	const handleMouseUpEvent = (event: MouseEvent) => handleMouseUp(event, createEventContext());
+	const handleMouseLeaveEvent = (event: MouseEvent) => handleMouseLeave(event, createEventContext(), hoverCheckTimeout);
+	const handleKeyDownEvent = (event: KeyboardEvent) => handleKeyDown(event, createEventContext());
+	const handleKeyUpEvent = (event: KeyboardEvent) => handleKeyUp(event, createEventContext());
 
 	const handleResize = () => {
 		updateCanvasDimensions();
@@ -657,121 +645,53 @@
 	// ==================== Render Callbacks ====================
 
 	/**
-	 * Generates a hash of shapes state for change detection
-	 * Returns true if the hash changed, false otherwise
+	 * Updates shapes hash and returns true if it changed
 	 */
 	const updateShapesHash = (): boolean => {
-		const shapesData = JSON.stringify(
-			shapes.map((s) => ({
-				x: s.x,
-				y: s.y,
-				width: s.width,
-				height: s.height,
-				rotate: s.rotate,
-				kind: s.kind,
-				...(s.kind === 'image' ? { url: s.url } : {}),
-				...(s.kind === 'text' ? { text: s.text, fontSize: s.fontSize } : {})
-			}))
-		);
-		
-		const hashChanged = shapesData !== shapesHash;
-		shapesHash = shapesData;
-		
+		const newHash = generateShapesHash(shapes);
+		const hashChanged = newHash !== shapesHash;
+		shapesHash = newHash;
 		return hashChanged;
 	};
 
-	/**
-	 * Captures thumbnail for a specific page
-	 * @param targetPage - The page to capture thumbnail for
-	 * @param targetShapes - The shapes for that page
-	 * @returns Promise that resolves to the data URL string, or null if capture fails
-	 */
-	const captureThumbnailForPage = async (
-		targetPage: EditorPage,
-		targetShapes: Shape[]
-	): Promise<string | null> => {
-		// Validate required resources
-		if (!ck || !fontMgr) {
-			return null;
-		}
-
-		// Create paints and bounds for the target page
-		const targetPaints = createPaints(ck, targetPage);
-		const targetPageBounds = ck.XYWHRect(
-			-targetPage.width / 2,
-			-targetPage.height / 2,
-			targetPage.width,
-			targetPage.height
-		);
-
-		return captureThumbnail({
-			ck,
-			page: targetPage,
-			pageBounds: targetPageBounds,
-			shapes: targetShapes,
-			paints: targetPaints,
-			fontMgr
-		});
-	};
-
-	/**
-	 * Captures the current canvas render as a thumbnail data URL
-	 * @returns Promise that resolves to the data URL string, or null if capture fails
-	 */
-	const captureThumbnailLocal = async (): Promise<string | null> => {
-		// Validate required resources
-		if (!ck || !page || !pageBounds || !paints || !fontMgr) {
-			return null;
-		}
-
-		return captureThumbnail({
-			ck,
-			page,
-			pageBounds,
-			shapes,
-			paints,
-			fontMgr
-		});
-	};
 
 	/**
 	 * Captures thumbnail and stores it in the page object
 	 */
 	const captureAndStoreThumbnail = async () => {
-		// Don't capture if already capturing
-		if (isCapturingThumbnail || !page || !document) {
+		if (isCapturingThumbnail || !page || !document || !ck || !fontMgr) {
 			return;
 		}
 
-		// Store references to avoid closure issues
 		const currentPage = page;
 		const currentDocument = document;
 
 		// Wait for next render frame to ensure content is rendered
 		requestAnimationFrame(() => {
 			requestAnimationFrame(async () => {
-				if (!currentPage || !currentDocument) return;
+				if (!currentPage || !currentDocument || !ck || !fontMgr) return;
 
 				isCapturingThumbnail = true;
 				try {
-					const dataUrl = await captureThumbnailLocal();
-					console.log('Thumbnail captured:', dataUrl);
+					const thumbnailContext = {
+						ck,
+						page: currentPage,
+						pageBounds: pageBounds!,
+						shapes,
+						paints: paints!,
+						fontMgr
+					};
+
+					const dataUrl = await captureThumbnailLocal(thumbnailContext);
 					if (dataUrl) {
-						// Find the page in document.pages array and update it
-						const pageIndex = currentDocument.pages.findIndex((p) => p.id === currentPage.id);
-						if (pageIndex !== -1) {
-							// Create new page object with thumbnail
-							const updatedPage = { ...currentPage, thumbnailUrl: dataUrl };
-							// Create new pages array with updated page
-							const updatedPages = [...currentDocument.pages];
-							updatedPages[pageIndex] = updatedPage;
-							// Create new document with updated pages
-							document = { ...currentDocument, pages: updatedPages };
-							// Update local page reference
-							page = updatedPage;
-							
-							console.log('Thumbnail captured and stored for page:', currentPage.id);
-						}
+						const { document: updatedDocument, page: updatedPage } = updatePageThumbnail(
+							currentDocument,
+							currentPage,
+							dataUrl
+						);
+						document = updatedDocument;
+						page = updatedPage;
+						console.log('Thumbnail captured and stored for page:', currentPage.id);
 					}
 				} catch (error) {
 					console.error('Error capturing thumbnail:', error);
@@ -787,157 +707,36 @@
 	 */
 	const scheduleThumbnailCapture = () => {
 		if (!page || !isInitialized) {
-			console.log('scheduleThumbnailCapture: Skipping - page:', !!page, 'isInitialized:', isInitialized);
 			return;
 		}
 
-		// Clear any existing timeout
 		if (thumbnailCaptureTimeout !== null) {
 			clearTimeout(thumbnailCaptureTimeout);
 		}
 
-		// Determine delay: 500ms if no thumbnail exists, 1000ms if thumbnail exists (longer delay to ensure user completed action)
-		const delay = page.thumbnailUrl ? 1000 : 500;
-
-		console.log('scheduleThumbnailCapture: Scheduling capture with delay', delay, 'ms, hasThumbnail:', !!page.thumbnailUrl);
-
+		const delay = getThumbnailCaptureDelay(!!page.thumbnailUrl);
 		thumbnailCaptureTimeout = window.setTimeout(() => {
-			console.log('scheduleThumbnailCapture: Executing capture now');
 			captureAndStoreThumbnail();
 			thumbnailCaptureTimeout = null;
 		}, delay);
 	};
 
-	/**
-	 * Processes background thumbnail queue for all pages
-	 * Runs asynchronously without blocking the main render
-	 */
-	const processBackgroundThumbnails = async () => {
-		if (!document || !ck || !fontMgr || isProcessingBackgroundThumbnails) {
-			return;
-		}
-
-		isProcessingBackgroundThumbnails = true;
-
-		try {
-			// Find all pages that need thumbnails
-			const pagesNeedingThumbnails: number[] = [];
-			for (let i = 0; i < document.pages.length; i++) {
-				const p = document.pages[i];
-				if (!p.thumbnailUrl && p.shapes.length > 0) {
-					pagesNeedingThumbnails.push(i);
-				}
-			}
-
-			console.log(`Found ${pagesNeedingThumbnails.length} pages needing thumbnails`);
-
-			// Process pages one at a time with delays to avoid blocking
-			for (const pageIndex of pagesNeedingThumbnails) {
-				// Check if we should pause to avoid blocking main render
-				// Yield to main thread between pages
-				await new Promise<void>((resolve) => {
-					// Use requestIdleCallback if available for better performance
-					const processPage = async () => {
-						await captureThumbnailForPageIndex(pageIndex);
-						// Small delay between pages to yield to main thread
-						setTimeout(resolve, 150);
-					};
-
-					if ('requestIdleCallback' in window) {
-						(window as any).requestIdleCallback(
-							processPage,
-							{ timeout: 2000 }
-						);
-					} else {
-						// Fallback: use setTimeout with longer delay to avoid blocking
-						setTimeout(processPage, 300);
-					}
-				});
-			}
-		} catch (error) {
-			console.error('Error processing background thumbnails:', error);
-		} finally {
-			isProcessingBackgroundThumbnails = false;
-		}
-	};
-
-	/**
-	 * Captures thumbnail for a specific page by index
-	 */
-	const captureThumbnailForPageIndex = async (pageIndex: number) => {
-		if (!document || !ck || pageIndex < 0 || pageIndex >= document.pages.length) {
-			return;
-		}
-
-		const targetPage = document.pages[pageIndex];
-		if (!targetPage || targetPage.thumbnailUrl) {
-			return; // Already has thumbnail
-		}
-
-		try {
-			// Load images for the page if needed
-			const loadedShapes = await loadPageImages(ck, targetPage);
-
-			// Capture thumbnail
-			const dataUrl = await captureThumbnailForPage(targetPage, loadedShapes);
-
-			if (dataUrl && document) {
-				// Update the page in document
-				const updatedPage = { ...targetPage, thumbnailUrl: dataUrl };
-				const updatedPages = [...document.pages];
-				updatedPages[pageIndex] = updatedPage;
-				document = { ...document, pages: updatedPages };
-
-				console.log(`Thumbnail captured for page ${pageIndex + 1}/${document.pages.length}:`, targetPage.id);
-			}
-		} catch (error) {
-			console.error(`Error capturing thumbnail for page ${pageIndex}:`, error);
-		}
-	};
 
 	// Watch for shape changes and schedule thumbnail capture
-	// This reactive statement runs when page, shapes, shapesHash, or isInitialized changes
 	$: if (isInitialized && page && shapes.length > 0 && shapesHash !== '') {
-		const currentHash = JSON.stringify(
-			shapes.map((s) => ({
-				x: s.x,
-				y: s.y,
-				width: s.width,
-				height: s.height,
-				rotate: s.rotate,
-				kind: s.kind,
-				...(s.kind === 'image' ? { url: s.url } : {}),
-				...(s.kind === 'text' ? { text: s.text, fontSize: s.fontSize } : {})
-			}))
-		);
-
-		// Schedule capture if shapes changed
+		const currentHash = generateShapesHash(shapes);
 		if (currentHash !== shapesHash) {
-			console.log('Reactive statement: Shapes changed, scheduling capture');
 			shapesHash = currentHash;
 			scheduleThumbnailCapture();
 		}
 	}
 
 	// Start background thumbnail processing when document is loaded (only once)
-	$: if (isInitialized && document && document.pages.length > 0 && !backgroundThumbnailsStarted && !isProcessingBackgroundThumbnails) {
+	$: if (isInitialized && document && document.pages.length > 0 && !backgroundThumbnailsStarted && ck && fontMgr) {
 		backgroundThumbnailsStarted = true;
-		
-		// Use requestIdleCallback to start processing when browser is idle
-		// This ensures it doesn't block the main render flow
-		if ('requestIdleCallback' in window) {
-			(window as any).requestIdleCallback(
-				() => {
-					processBackgroundThumbnails();
-				},
-				{ timeout: 3000 }
-			);
-		} else {
-			// Fallback: start after a delay to let main render complete
-			setTimeout(() => {
-				processBackgroundThumbnails();
-			}, 2000);
-		}
+		scheduleBackgroundThumbnailProcessing(ck, fontMgr, document, (updatedDocument) => {
+			document = updatedDocument;
+		});
 	}
 
 	

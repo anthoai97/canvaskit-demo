@@ -34,6 +34,9 @@ export interface EventHandlerContext {
 	onShapeRotate: (shapeIndex: number, rotation: number) => void;
 	onSelectionChange: (shapeIndex: number) => void;
 	onSelectionClear: () => void;
+	onResizingCornerChange: (corner: ResizeCorner | null) => void;
+	onResizeStartStateChange: (state: ResizeState | null) => void;
+	onRotationStartStateChange: (state: RotationState | null) => void;
 }
 
 /**
@@ -135,7 +138,7 @@ export function handleShapeDragging(event: MouseEvent, context: EventHandlerCont
 export function handleShapeRotation(event: MouseEvent, context: EventHandlerContext): void {
 	if (!context.rotationStartState || !context.isValidShapeIndex(context.selectedShape.index)) {
 		if (!context.isValidShapeIndex(context.selectedShape.index)) {
-			context.rotationStartState = null;
+			context.onRotationStartStateChange(null);
 		}
 		return;
 	}
@@ -147,7 +150,7 @@ export function handleShapeRotation(event: MouseEvent, context: EventHandlerCont
 
 	const shape = context.shapes[context.selectedShape.index];
 	if (!shape) {
-		context.rotationStartState = null;
+		context.onRotationStartStateChange(null);
 		return;
 	}
 
@@ -284,7 +287,8 @@ export function handleMouseDown(event: MouseEvent, context: EventHandlerContext)
 	if (context.hoverState.isHoveringRotateCircle && context.isValidShapeIndex(context.selectedShape.index)) {
 		const shape = context.shapes[context.selectedShape.index];
 		const worldPos = screenToWorld(x, y, context.cameraState);
-		context.rotationStartState = initializeRotation(shape, worldPos);
+		const rotationState = initializeRotation(shape, worldPos);
+		context.onRotationStartStateChange(rotationState);
 
 		context.mouseState.isMouseDown = true;
 		context.mouseState.lastMouseX = x;
@@ -298,8 +302,9 @@ export function handleMouseDown(event: MouseEvent, context: EventHandlerContext)
 		const shape = context.shapes[context.selectedShape.index];
 		const worldPos = screenToWorld(x, y, context.cameraState);
 
-		context.resizingCorner = context.hoverState.resizeCorner;
-		context.resizeStartState = initializeResize(shape, worldPos);
+		context.onResizingCornerChange(context.hoverState.resizeCorner);
+		const resizeState = initializeResize(shape, worldPos);
+		context.onResizeStartStateChange(resizeState);
 
 		context.mouseState.isMouseDown = true;
 		context.mouseState.lastMouseX = x;
@@ -335,15 +340,15 @@ export function handleMouseDown(event: MouseEvent, context: EventHandlerContext)
  */
 export function handleMouseUp(event: MouseEvent, context: EventHandlerContext): void {
 	if (context.rotationStartState !== null) {
-		context.rotationStartState = null;
+		context.onRotationStartStateChange(null);
 	}
 
 	if (context.mouseState.isMouseDown) {
 		event.preventDefault();
 		context.mouseState.isMouseDown = false;
 		context.mouseState.isDragging = false;
-		context.resizingCorner = null;
-		context.resizeStartState = null;
+		context.onResizingCornerChange(null);
+		context.onResizeStartStateChange(null);
 		updateCursor(context);
 	}
 }
@@ -359,9 +364,9 @@ export function handleMouseLeave(
 	if (context.mouseState.isMouseDown) {
 		context.mouseState.isMouseDown = false;
 		context.mouseState.isDragging = false;
-		context.resizingCorner = null;
-		context.resizeStartState = null;
-		context.rotationStartState = null;
+		context.onResizingCornerChange(null);
+		context.onResizeStartStateChange(null);
+		context.onRotationStartStateChange(null);
 		updateCursor(context);
 	}
 
