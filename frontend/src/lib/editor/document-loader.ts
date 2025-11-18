@@ -9,7 +9,7 @@ import { loadImageBinary } from '$lib/canvakit/image';
 export async function loadDocument(url: string): Promise<EditorDocument | null> {
 	try {
 		const response = await fetch(url);
-		await new Promise(resolve => setTimeout(resolve, 3000));
+		// await new Promise(resolve => setTimeout(resolve, 3000));
 		if (!response.ok) {
 			console.error('Failed to fetch document', response.status);
 			return null;
@@ -18,12 +18,7 @@ export async function loadDocument(url: string): Promise<EditorDocument | null> 
 		const json = await response.json();
 
 		// Support multiple formats
-		if (json.page) {
-			// Old format: single page
-			return {
-				pages: [json.page]
-			};
-		} else if (json.pages && Array.isArray(json.pages)) {
+		if (json.pages && Array.isArray(json.pages)) {
 			// New format: document with pages
 			return json;
 		} else if (Array.isArray(json) && json.length > 0) {

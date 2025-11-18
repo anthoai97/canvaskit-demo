@@ -13,6 +13,7 @@
 	import { loadDocument, createDefaultDocument, loadPageImages } from '$lib/editor/document-loader';
 	import { drawScene as renderScene, type RenderContext } from '$lib/editor/scene-renderer';
 	import { drawLoadingScreen, type LoadingRenderContext } from '$lib/editor/loading-renderer';
+	import { captureThumbnail } from '$lib/editor/thumbnail-capture';
 	import {
 		handleWheel,
 		handleMouseMove,
@@ -25,15 +26,31 @@
 		type EventHandlerContext
 	} from '$lib/editor/event-handlers';
 
+	// ==================== DOM References ====================
 	let editor: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
-	let ck: CanvasKit;
 
+	// ==================== CanvasKit State ====================
+	let ck: CanvasKit;
+	let surface: Surface | null = null;
+	let skCanvas: Canvas | null = null;
+	let fontMgr: FontMgr | null = null;
+
+	// ==================== Canvas Dimensions ====================
 	let canvasWidth: number;
 	let canvasHeight: number;
 	let devicePixelRatioValue = 1;
 
-	// UI state
+	$: centerX = canvasWidth ? canvasWidth / 2 : 0;
+	$: centerY = canvasHeight ? canvasHeight / 2 : 0;
+
+	// ==================== Document & Page State ====================
+	let document: EditorDocument | null = null;
+	let currentPageIndex = 0;
+	let page: EditorPage | null = null;
+	let shapes: Shape[] = [];
+
+	// ==================== UI State ====================
 	let canvasCursor = 'default';
 	let hoverState = { shapeIndex: INVALID_INDEX, resizeCorner: null, isHoveringRotateCircle: false };
 	let selectedShape = { index: INVALID_INDEX, rendered: false };
@@ -41,39 +58,7 @@
 	let resizeStartState: any = null;
 	let rotationStartState: any = null;
 
-	// Paint objects (reused for performance)
-	let paints: ReturnType<typeof createPaints> | null = null;
-	let lowOpacityPaint: Paint | null = null;
-	let pageBounds: Float32Array | null = null;
-
-	// Performance optimization: requestAnimationFrame throttling
-	let animationFrameId: number | null = null;
-	let needsRedraw = false;
-	let hoverCheckTimeout: { value: number | null } = { value: null };
-
-	// Auto-play mode: automatically advance to next page after animations complete
-	let isAutoPlaying = false;
-	let wasAnimating = false;
-
-	// Loading state
-	let isLoading = true;
-
-	// Event handlers cleanup
-	let cleanupEvents: (() => void) | null = null;
-
-	$: centerX = canvasWidth ? canvasWidth / 2 : 0;
-	$: centerY = canvasHeight ? canvasHeight / 2 : 0;
-
-	let surface: Surface | null = null;
-	let skCanvas: Canvas | null = null;
-	let fontMgr: FontMgr | null = null;
-
-	// Multi-page support
-	let document: EditorDocument | null = null;
-	let currentPageIndex = 0;
-	let page: EditorPage | null = null;
-	let shapes: Shape[] = [];
-
+	// ==================== Camera & Mouse State ====================
 	let cameraState = {
 		zoom: DEFAULT_CAMERA_ZOOM,
 		panX: 0,
@@ -87,6 +72,95 @@
 		lastMouseX: 0,
 		lastMouseY: 0
 	};
+
+	// ==================== Rendering Resources ====================
+	let paints: ReturnType<typeof createPaints> | null = null;
+	let lowOpacityPaint: Paint | null = null;
+	let pageBounds: Float32Array | null = null;
+
+	// ==================== Animation State ====================
+	let animationFrameId: number | null = null;
+	let loadingAnimationId: number | null = null;
+	let needsRedraw = false;
+	let hoverCheckTimeout: { value: number | null } = { value: null };
+	let isAutoPlaying = false;
+	let wasAnimating = false;
+
+	// ==================== Component State ====================
+	let isLoading = true;
+	let isInitialized = false;
+	let cleanupEvents: (() => void) | null = null;
+	let shapesHash: string = ''; // Track shapes state for thumbnail capture
+	let isCapturingThumbnail = false;
+	let thumbnailCaptureTimeout: number | null = null;
+	let initialThumbnailTriggered = false; // Track if initial capture has been triggered for current page
+	let backgroundThumbnailQueue: number[] = []; // Queue of page indices to capture thumbnails for
+	let isProcessingBackgroundThumbnails = false;
+	let backgroundThumbnailsStarted = false; // Track if background processing has been started
+
+	// ==================== WebSocket State ====================
+	let ws: StableWebSocket | null = null;
+	let wsMessages: string[] = [];
+
+	// ==================== Canvas Utilities ====================
+
+	/**
+	 * Updates canvas dimensions based on container size and device pixel ratio
+	 */
+	const updateCanvasDimensions = () => {
+		canvasWidth = editor.clientWidth;
+		canvasHeight = editor.clientHeight;
+		devicePixelRatioValue = window.devicePixelRatio || 1;
+
+		canvas.style.width = `${canvasWidth}px`;
+		canvas.style.height = `${canvasHeight}px`;
+		canvas.width = canvasWidth * devicePixelRatioValue;
+		canvas.height = canvasHeight * devicePixelRatioValue;
+
+		// Inform CanvasKit surface about the new backing-store size (if supported)
+		if (surface && typeof (surface as any).resize === 'function') {
+			(surface as any).resize(
+				canvasWidth * devicePixelRatioValue,
+				canvasHeight * devicePixelRatioValue
+			);
+		}
+	};
+
+	/**
+	 * Creates a loading render context
+	 */
+	const createLoadingContext = (): LoadingRenderContext => {
+		return {
+			skCanvas: skCanvas!,
+			ck: ck!,
+			canvasWidth,
+			canvasHeight,
+			devicePixelRatio: devicePixelRatioValue,
+			surface: surface!
+		};
+	};
+
+	// ==================== Animation Helpers ====================
+
+	/**
+	 * Checks if shapes have animations
+	 */
+	const hasAnimations = (shapesToCheck: Shape[]): boolean => {
+		return shapesToCheck.some((shape) => shape.animation && shape.animation.type !== 'none');
+	};
+
+	/**
+	 * Starts animations for shapes
+	 */
+	const startShapeAnimations = (shapesToAnimate: Shape[], startTime: number = performance.now()) => {
+		for (const shape of shapesToAnimate) {
+			if (shape.animation && shape.animation.type !== 'none') {
+				shape.animationStart = startTime;
+			}
+		}
+	};
+
+	// ==================== Page Management ====================
 
 	/**
 	 * Loads and switches to a specific page
@@ -108,29 +182,28 @@
 		paints = createPaints(ck, page);
 		pageBounds = ck.XYWHRect(-page.width / 2, -page.height / 2, page.width, page.height);
 
+		// Reset initial capture flag for new page
+		initialThumbnailTriggered = false;
+
+		// Reset shapes hash to trigger reactive statement
+		shapesHash = '';
+
 		// Reset camera to center
 		cameraState.panX = centerX;
 		cameraState.panY = centerY;
-		clearSelection();
 		
-		// Check if new page has animations (for auto-play mode)
+		// Clear selection
+		resetSelectedShape(selectedShape);
+		resetHoverState(hoverState);
+
+		// Handle animations for auto-play mode
 		if (isAutoPlaying) {
-			const hasAnimations = loadedShapes.some(
-				(shape) => shape.animation && shape.animation.type !== 'none'
-			);
-			if (hasAnimations) {
-				// Start animations on the new page
-				const now = performance.now();
-				for (const shape of loadedShapes) {
-					if (shape.animation && shape.animation.type !== 'none') {
-						shape.animationStart = now;
-					}
-				}
+			if (hasAnimations(loadedShapes)) {
+				startShapeAnimations(loadedShapes);
 				wasAnimating = true;
 			} else {
-				// No animations on this page, advance to next page immediately
 				wasAnimating = false;
-				// Use setTimeout to avoid calling switchToPage during loadPage
+				// No animations on this page, advance to next page immediately
 				setTimeout(() => {
 					if (document && document.pages.length > 0) {
 						const nextPageIndex = (currentPageIndex + 1) % document.pages.length;
@@ -141,12 +214,19 @@
 		} else {
 			wasAnimating = false;
 		}
-		
+
 		scheduleDraw();
 	};
 
-	// Track if we're initialized to prevent reactive statement from running too early
-	let isInitialized = false;
+	/**
+	 * Switches to a specific page by index
+	 */
+	const switchToPage = (index: number) => {
+		if (document && index >= 0 && index < document.pages.length) {
+			currentPageIndex = index;
+			// loadPage will be called by the reactive statement
+		}
+	};
 
 	// Reactive: Update current page when index changes (only after initialization)
 	$: if (
@@ -164,40 +244,23 @@
 	 * Toggles auto-play mode: starts animations and auto-advance if stopped, stops if playing
 	 */
 	const toggleAutoPlay = () => {
+		
+		
+		// Restore original toggle logic
 		if (isAutoPlaying) {
 			// Stop auto-play
 			isAutoPlaying = false;
 			wasAnimating = false;
 		} else {
 			// Start auto-play
-			const now = performance.now();
-			for (const shape of shapes) {
-				if (shape.animation && shape.animation.type !== 'none') {
-					// Reset animation start time to replay the animation
-					shape.animationStart = now;
-				}
-			}
+			startShapeAnimations(shapes);
 			isAutoPlaying = true;
 			wasAnimating = true; // Assume we're starting animations
 			scheduleDraw();
 		}
 	};
 
-	// ==================== Page Management ====================
-
-	/**
-	 * Switches to a specific page by index
-	 */
-	const switchToPage = (index: number) => {
-		if (document && index >= 0 && index < document.pages.length) {
-			currentPageIndex = index;
-			// loadPage will be called by the reactive statement
-		}
-	};
-
-	// ==================== WebSocket state ====================
-	let ws: StableWebSocket | null = null;
-	let wsMessages: string[] = [];
+	// ==================== WebSocket ====================
 
 	const setupWebSocket = () => {
 		ws = new StableWebSocket();
@@ -207,56 +270,63 @@
 		});
 	};
 
-	onMount(async () => {
-		canvasWidth = editor.clientWidth;
-		canvasHeight = editor.clientHeight;
+	// ==================== Initialization ====================
 
-		// Handle HiDPI / Retina displays to keep rendering (especially text) sharp
-		devicePixelRatioValue = window.devicePixelRatio || 1;
-		canvas.style.width = `${canvasWidth}px`;
-		canvas.style.height = `${canvasHeight}px`;
-		canvas.width = canvasWidth * devicePixelRatioValue;
-		canvas.height = canvasHeight * devicePixelRatioValue;
-
-		// Wait for reactive statements to update
-		await tick();
-
-		cameraState.panX = centerX;
-		cameraState.panY = centerY;
-
+	/**
+	 * Initializes the CanvasKit context and canvas
+	 */
+	const initializeCanvas = async () => {
 		ck = await initCanvasKit();
-
-		
-
 		surface = createWebGLSurface(ck, canvas);
 		skCanvas = surface?.getCanvas() ?? null;
+	};
 
-		// Start loading animation
-		isLoading = true;
-		startLoadingAnimation();
-
-		// Start loading font data and build a FontMgr for Paragraph / text rendering
+	/**
+	 * Initializes fonts for text rendering
+	 */
+	const initializeFonts = async () => {
 		preloadFonts();
 		fontMgr = await loadFonts(ck);
+	};
 
-		// Load initial document from backend API (or static test JSON for now)
-		// TODO: switch to a real backend endpoint (e.g. /api/document) later
+	/**
+	 * Loads the initial document
+	 */
+	const initializeDocument = async () => {
 		document = await loadDocument('/test_data/beautiful_mock_data.json');
 
-		// Ensure document is loaded before proceeding
 		if (!document || document.pages.length === 0) {
 			console.error('Document data not loaded');
 			document = createDefaultDocument();
 			currentPageIndex = 0;
 		}
+		
+		// Reset background thumbnail processing flag when new document loads
+		backgroundThumbnailsStarted = false;
+	};
+
+	onMount(async () => {
+		updateCanvasDimensions();
+		await tick();
+
+		cameraState.panX = centerX;
+		cameraState.panY = centerY;
+
+		await initializeCanvas();
+
+		// Start loading animation
+		isLoading = true;
+		startLoadingAnimation();
+
+		await initializeFonts();
+		await initializeDocument();
 
 		// Stop loading animation
 		isLoading = false;
 
-		// Wait for reactive statement to set page
 		await tick();
 
-		// Load the first page (reactive statement will handle it, but we ensure it happens)
+		// Load the first page
 		if (document && document.pages.length > 0) {
 			await loadPage(0);
 		}
@@ -266,7 +336,7 @@
 			return;
 		}
 
-		// Initialize cached paint for performance (lowOpacityPaint is created in loadPage via createPaints)
+		// Initialize cached paint for performance
 		lowOpacityPaint = new ck.Paint();
 		lowOpacityPaint.setAlphaf(0.5); // 50% opacity
 
@@ -276,7 +346,6 @@
 		cleanupEvents = bindEvents();
 		drawScene();
 
-		// Setup WebSocket connection for collaborative messaging / presence.
 		setupWebSocket();
 	});
 
@@ -289,9 +358,11 @@
 		if (loadingAnimationId !== null) {
 			cancelAnimationFrame(loadingAnimationId);
 		}
-
 		if (hoverCheckTimeout.value !== null) {
 			clearTimeout(hoverCheckTimeout.value);
+		}
+		if (thumbnailCaptureTimeout !== null) {
+			clearTimeout(thumbnailCaptureTimeout);
 		}
 
 		resetSelectedShape(selectedShape);
@@ -301,7 +372,48 @@
 		rotationStartState = null;
 	});
 
-	// ==================== Helper Functions ====================
+	// ==================== Selection & Hover Helpers ====================
+
+	/**
+	 * Checks if a shape index is valid
+	 */
+	const isValidShapeIndex = (index: number): boolean => {
+		return index !== INVALID_INDEX && index < shapes.length && shapes[index] !== undefined;
+	};
+
+	/**
+	 * Validates and cleans up selected shape index
+	 */
+	const validateSelectedShape = () => {
+		if (
+			selectedShape.index !== INVALID_INDEX &&
+			(selectedShape.index >= shapes.length || !shapes[selectedShape.index])
+		) {
+			resetSelectedShape(selectedShape);
+			resetHoverState(hoverState);
+		}
+	};
+
+	/**
+	 * Clears selection state
+	 */
+	const clearSelection = () => {
+		resetSelectedShape(selectedShape);
+		resetHoverState(hoverState);
+		resizingCorner = null;
+		resizeStartState = null;
+		rotationStartState = null;
+		scheduleDraw();
+	};
+
+	/**
+	 * Clears hover state
+	 */
+	const clearHoverState = () => {
+		resetHoverState(hoverState);
+		updateCursorStyle();
+		scheduleDraw();
+	};
 
 	/**
 	 * Updates cursor style based on current state
@@ -310,6 +422,8 @@
 		const context = createEventHandlerContext();
 		updateCursor(context);
 	};
+
+	// ==================== Event Handler Context ====================
 
 	/**
 	 * Creates event handler context
@@ -339,6 +453,11 @@
 				const draggedShape = shapes[shapeIndex];
 				draggedShape.x += deltaX;
 				draggedShape.y += deltaY;
+				// Trigger reactivity by reassigning shapes array
+				shapes = [...shapes];
+				if (updateShapesHash()) {
+					scheduleThumbnailCapture();
+				}
 			},
 			onShapeResize: (shapeIndex: number, x: number, y: number, width: number, height: number) => {
 				const shape = shapes[shapeIndex];
@@ -346,10 +465,20 @@
 				shape.y = y;
 				shape.width = width;
 				shape.height = height;
+				// Trigger reactivity by reassigning shapes array
+				shapes = [...shapes];
+				if (updateShapesHash()) {
+					scheduleThumbnailCapture();
+				}
 			},
 			onShapeRotate: (shapeIndex: number, rotation: number) => {
 				const shape = shapes[shapeIndex];
 				shape.rotate = rotation;
+				// Trigger reactivity by reassigning shapes array
+				shapes = [...shapes];
+				if (updateShapesHash()) {
+					scheduleThumbnailCapture();
+				}
 			},
 			onSelectionChange: (shapeIndex: number) => {
 				selectedShape.index = shapeIndex;
@@ -357,47 +486,6 @@
 			},
 			onSelectionClear: clearSelection
 		};
-	};
-
-	/**
-	 * Clears hover state
-	 */
-	const clearHoverState = () => {
-		resetHoverState(hoverState);
-		updateCursorStyle();
-		scheduleDraw();
-	};
-
-	/**
-	 * Clears selection state
-	 */
-	const clearSelection = () => {
-		resetSelectedShape(selectedShape);
-		resetHoverState(hoverState);
-		resizingCorner = null;
-		resizeStartState = null;
-		rotationStartState = null;
-		scheduleDraw();
-	};
-
-	/**
-	 * Checks if a shape index is valid
-	 */
-	const isValidShapeIndex = (index: number): boolean => {
-		return index !== INVALID_INDEX && index < shapes.length && shapes[index] !== undefined;
-	};
-
-	/**
-	 * Validates and cleans up selected shape index
-	 */
-	const validateSelectedShape = () => {
-		if (
-			selectedShape.index !== INVALID_INDEX &&
-			(selectedShape.index >= shapes.length || !shapes[selectedShape.index])
-		) {
-			resetSelectedShape(selectedShape);
-			resetHoverState(hoverState);
-		}
 	};
 
 	// ==================== Rendering ====================
@@ -414,8 +502,6 @@
 			});
 		}
 	};
-
-	// ==================== Rendering ====================
 
 	/**
 	 * Creates render context for scene rendering
@@ -441,14 +527,13 @@
 			canvasHeight,
 			devicePixelRatio: devicePixelRatioValue,
 			surface,
-			isValidShapeIndex
+			isValidShapeIndex,
 		};
 	};
 
 	/**
 	 * Starts the loading animation loop
 	 */
-	let loadingAnimationId: number | null = null;
 	const startLoadingAnimation = () => {
 		if (loadingAnimationId !== null) return;
 
@@ -458,46 +543,27 @@
 				return;
 			}
 
-			drawLoadingScreen(
-				{
-					skCanvas,
-					ck,
-					canvasWidth,
-					canvasHeight,
-					devicePixelRatio: devicePixelRatioValue,
-					surface
-				},
-				performance.now()
-			);
-
+			drawLoadingScreen(createLoadingContext(), performance.now());
 			loadingAnimationId = requestAnimationFrame(animate);
 		};
 
 		loadingAnimationId = requestAnimationFrame(animate);
 	};
 
+	/**
+	 * Main scene drawing function
+	 */
 	const drawScene = () => {
 		// Show loading screen if still loading
 		if (isLoading) {
 			if (skCanvas && ck && surface) {
-				drawLoadingScreen(
-					{
-						skCanvas,
-						ck,
-						canvasWidth,
-						canvasHeight,
-						devicePixelRatio: devicePixelRatioValue,
-						surface
-					},
-					performance.now()
-				);
+				drawLoadingScreen(createLoadingContext(), performance.now());
 			}
 			return;
 		}
 
 		if (!skCanvas || !ck || !paints || !lowOpacityPaint || !pageBounds || !fontMgr || !page) return;
 
-		// Validate selected shape before drawing
 		validateSelectedShape();
 
 		try {
@@ -505,16 +571,18 @@
 			const isAnimating = renderScene(renderContext, scheduleDraw);
 
 			// Check if animations just completed (was animating, now not animating)
-			if (isAutoPlaying && wasAnimating && !isAnimating) {
+			const animationsJustCompleted = wasAnimating && !isAnimating;
+
+			if (isAutoPlaying && animationsJustCompleted) {
 				// Animations just completed, advance to next page
 				if (document && document.pages.length > 0) {
 					const nextPageIndex = (currentPageIndex + 1) % document.pages.length;
 					switchToPage(nextPageIndex);
-					// loadPage will handle starting animations on the new page
 				}
-			} else {
-				wasAnimating = isAnimating;
 			}
+
+		
+			wasAnimating = isAnimating;
 		} catch (error) {
 			console.error('Error rendering scene:', error);
 		}
@@ -522,9 +590,6 @@
 
 	// ==================== Event Handlers ====================
 
-	/**
-	 * Wraps event handlers to use extracted modules
-	 */
 	const handleWheelEvent = (event: WheelEvent) => {
 		handleWheel(event, createEventHandlerContext());
 	};
@@ -553,36 +618,10 @@
 		handleKeyUp(event, createEventHandlerContext());
 	};
 
-	// ==================== Window Event Handlers ====================
-
-	/**
-	 * Handles window resize events
-	 */
 	const handleResize = () => {
-		canvasWidth = editor.clientWidth;
-		canvasHeight = editor.clientHeight;
-
-		// Recompute DPR on resize in case the window moved between screens
-		devicePixelRatioValue = window.devicePixelRatio || 1;
-
-		canvas.style.width = `${canvasWidth}px`;
-		canvas.style.height = `${canvasHeight}px`;
-		canvas.width = canvasWidth * devicePixelRatioValue;
-		canvas.height = canvasHeight * devicePixelRatioValue;
-
-		// Inform CanvasKit surface about the new backing-store size (if supported)
-		const maybeSurface: any = surface;
-		if (maybeSurface && typeof maybeSurface.resize === 'function') {
-			maybeSurface.resize(
-				canvasWidth * devicePixelRatioValue,
-				canvasHeight * devicePixelRatioValue
-			);
-		}
-
+		updateCanvasDimensions();
 		scheduleDraw();
 	};
-
-	// ==================== Event Binding ====================
 
 	/**
 	 * Binds all event listeners and returns cleanup function
@@ -614,6 +653,294 @@
 			canvas.removeEventListener('mouseleave', handleMouseLeaveEvent);
 		};
 	};
+
+	// ==================== Render Callbacks ====================
+
+	/**
+	 * Generates a hash of shapes state for change detection
+	 * Returns true if the hash changed, false otherwise
+	 */
+	const updateShapesHash = (): boolean => {
+		const shapesData = JSON.stringify(
+			shapes.map((s) => ({
+				x: s.x,
+				y: s.y,
+				width: s.width,
+				height: s.height,
+				rotate: s.rotate,
+				kind: s.kind,
+				...(s.kind === 'image' ? { url: s.url } : {}),
+				...(s.kind === 'text' ? { text: s.text, fontSize: s.fontSize } : {})
+			}))
+		);
+		
+		const hashChanged = shapesData !== shapesHash;
+		shapesHash = shapesData;
+		
+		return hashChanged;
+	};
+
+	/**
+	 * Captures thumbnail for a specific page
+	 * @param targetPage - The page to capture thumbnail for
+	 * @param targetShapes - The shapes for that page
+	 * @returns Promise that resolves to the data URL string, or null if capture fails
+	 */
+	const captureThumbnailForPage = async (
+		targetPage: EditorPage,
+		targetShapes: Shape[]
+	): Promise<string | null> => {
+		// Validate required resources
+		if (!ck || !fontMgr) {
+			return null;
+		}
+
+		// Create paints and bounds for the target page
+		const targetPaints = createPaints(ck, targetPage);
+		const targetPageBounds = ck.XYWHRect(
+			-targetPage.width / 2,
+			-targetPage.height / 2,
+			targetPage.width,
+			targetPage.height
+		);
+
+		return captureThumbnail({
+			ck,
+			page: targetPage,
+			pageBounds: targetPageBounds,
+			shapes: targetShapes,
+			paints: targetPaints,
+			fontMgr
+		});
+	};
+
+	/**
+	 * Captures the current canvas render as a thumbnail data URL
+	 * @returns Promise that resolves to the data URL string, or null if capture fails
+	 */
+	const captureThumbnailLocal = async (): Promise<string | null> => {
+		// Validate required resources
+		if (!ck || !page || !pageBounds || !paints || !fontMgr) {
+			return null;
+		}
+
+		return captureThumbnail({
+			ck,
+			page,
+			pageBounds,
+			shapes,
+			paints,
+			fontMgr
+		});
+	};
+
+	/**
+	 * Captures thumbnail and stores it in the page object
+	 */
+	const captureAndStoreThumbnail = async () => {
+		// Don't capture if already capturing
+		if (isCapturingThumbnail || !page || !document) {
+			return;
+		}
+
+		// Store references to avoid closure issues
+		const currentPage = page;
+		const currentDocument = document;
+
+		// Wait for next render frame to ensure content is rendered
+		requestAnimationFrame(() => {
+			requestAnimationFrame(async () => {
+				if (!currentPage || !currentDocument) return;
+
+				isCapturingThumbnail = true;
+				try {
+					const dataUrl = await captureThumbnailLocal();
+					console.log('Thumbnail captured:', dataUrl);
+					if (dataUrl) {
+						// Find the page in document.pages array and update it
+						const pageIndex = currentDocument.pages.findIndex((p) => p.id === currentPage.id);
+						if (pageIndex !== -1) {
+							// Create new page object with thumbnail
+							const updatedPage = { ...currentPage, thumbnailUrl: dataUrl };
+							// Create new pages array with updated page
+							const updatedPages = [...currentDocument.pages];
+							updatedPages[pageIndex] = updatedPage;
+							// Create new document with updated pages
+							document = { ...currentDocument, pages: updatedPages };
+							// Update local page reference
+							page = updatedPage;
+							
+							console.log('Thumbnail captured and stored for page:', currentPage.id);
+						}
+					}
+				} catch (error) {
+					console.error('Error capturing thumbnail:', error);
+				} finally {
+					isCapturingThumbnail = false;
+				}
+			});
+		});
+	};
+
+	/**
+	 * Schedules thumbnail capture with appropriate delay based on whether thumbnail exists
+	 */
+	const scheduleThumbnailCapture = () => {
+		if (!page || !isInitialized) {
+			console.log('scheduleThumbnailCapture: Skipping - page:', !!page, 'isInitialized:', isInitialized);
+			return;
+		}
+
+		// Clear any existing timeout
+		if (thumbnailCaptureTimeout !== null) {
+			clearTimeout(thumbnailCaptureTimeout);
+		}
+
+		// Determine delay: 500ms if no thumbnail exists, 1000ms if thumbnail exists (longer delay to ensure user completed action)
+		const delay = page.thumbnailUrl ? 1000 : 500;
+
+		console.log('scheduleThumbnailCapture: Scheduling capture with delay', delay, 'ms, hasThumbnail:', !!page.thumbnailUrl);
+
+		thumbnailCaptureTimeout = window.setTimeout(() => {
+			console.log('scheduleThumbnailCapture: Executing capture now');
+			captureAndStoreThumbnail();
+			thumbnailCaptureTimeout = null;
+		}, delay);
+	};
+
+	/**
+	 * Processes background thumbnail queue for all pages
+	 * Runs asynchronously without blocking the main render
+	 */
+	const processBackgroundThumbnails = async () => {
+		if (!document || !ck || !fontMgr || isProcessingBackgroundThumbnails) {
+			return;
+		}
+
+		isProcessingBackgroundThumbnails = true;
+
+		try {
+			// Find all pages that need thumbnails
+			const pagesNeedingThumbnails: number[] = [];
+			for (let i = 0; i < document.pages.length; i++) {
+				const p = document.pages[i];
+				if (!p.thumbnailUrl && p.shapes.length > 0) {
+					pagesNeedingThumbnails.push(i);
+				}
+			}
+
+			console.log(`Found ${pagesNeedingThumbnails.length} pages needing thumbnails`);
+
+			// Process pages one at a time with delays to avoid blocking
+			for (const pageIndex of pagesNeedingThumbnails) {
+				// Check if we should pause to avoid blocking main render
+				// Yield to main thread between pages
+				await new Promise<void>((resolve) => {
+					// Use requestIdleCallback if available for better performance
+					const processPage = async () => {
+						await captureThumbnailForPageIndex(pageIndex);
+						// Small delay between pages to yield to main thread
+						setTimeout(resolve, 150);
+					};
+
+					if ('requestIdleCallback' in window) {
+						(window as any).requestIdleCallback(
+							processPage,
+							{ timeout: 2000 }
+						);
+					} else {
+						// Fallback: use setTimeout with longer delay to avoid blocking
+						setTimeout(processPage, 300);
+					}
+				});
+			}
+		} catch (error) {
+			console.error('Error processing background thumbnails:', error);
+		} finally {
+			isProcessingBackgroundThumbnails = false;
+		}
+	};
+
+	/**
+	 * Captures thumbnail for a specific page by index
+	 */
+	const captureThumbnailForPageIndex = async (pageIndex: number) => {
+		if (!document || !ck || pageIndex < 0 || pageIndex >= document.pages.length) {
+			return;
+		}
+
+		const targetPage = document.pages[pageIndex];
+		if (!targetPage || targetPage.thumbnailUrl) {
+			return; // Already has thumbnail
+		}
+
+		try {
+			// Load images for the page if needed
+			const loadedShapes = await loadPageImages(ck, targetPage);
+
+			// Capture thumbnail
+			const dataUrl = await captureThumbnailForPage(targetPage, loadedShapes);
+
+			if (dataUrl && document) {
+				// Update the page in document
+				const updatedPage = { ...targetPage, thumbnailUrl: dataUrl };
+				const updatedPages = [...document.pages];
+				updatedPages[pageIndex] = updatedPage;
+				document = { ...document, pages: updatedPages };
+
+				console.log(`Thumbnail captured for page ${pageIndex + 1}/${document.pages.length}:`, targetPage.id);
+			}
+		} catch (error) {
+			console.error(`Error capturing thumbnail for page ${pageIndex}:`, error);
+		}
+	};
+
+	// Watch for shape changes and schedule thumbnail capture
+	// This reactive statement runs when page, shapes, shapesHash, or isInitialized changes
+	$: if (isInitialized && page && shapes.length > 0 && shapesHash !== '') {
+		const currentHash = JSON.stringify(
+			shapes.map((s) => ({
+				x: s.x,
+				y: s.y,
+				width: s.width,
+				height: s.height,
+				rotate: s.rotate,
+				kind: s.kind,
+				...(s.kind === 'image' ? { url: s.url } : {}),
+				...(s.kind === 'text' ? { text: s.text, fontSize: s.fontSize } : {})
+			}))
+		);
+
+		// Schedule capture if shapes changed
+		if (currentHash !== shapesHash) {
+			console.log('Reactive statement: Shapes changed, scheduling capture');
+			shapesHash = currentHash;
+			scheduleThumbnailCapture();
+		}
+	}
+
+	// Start background thumbnail processing when document is loaded (only once)
+	$: if (isInitialized && document && document.pages.length > 0 && !backgroundThumbnailsStarted && !isProcessingBackgroundThumbnails) {
+		backgroundThumbnailsStarted = true;
+		
+		// Use requestIdleCallback to start processing when browser is idle
+		// This ensures it doesn't block the main render flow
+		if ('requestIdleCallback' in window) {
+			(window as any).requestIdleCallback(
+				() => {
+					processBackgroundThumbnails();
+				},
+				{ timeout: 3000 }
+			);
+		} else {
+			// Fallback: start after a delay to let main render complete
+			setTimeout(() => {
+				processBackgroundThumbnails();
+			}, 2000);
+		}
+	}
+
+	
 </script>
 
 <div class="flex h-screen">
@@ -645,14 +972,14 @@
 								class="text-[11px] font-mono text-zinc-300 bg-zinc-900/50 rounded px-2 py-1.5 border-l-2 border-zinc-700 hover:border-zinc-600 transition-colors"
 							>
 								<span class="text-zinc-500 text-[10px] mr-2">#{i + 1}</span>
-								<span class="break-words">{m}</span>
+								<span class="wrap-break-word">{m}</span>
 							</div>
 						{/each}
 					{/if}
 				</div>
 			</div>
 		</div>
-		<!-- Export Controls -->
+		<!-- Animation Controls -->
 		<div class="mb-4">
 			<h3 class="block text-xs font-medium text-zinc-400 uppercase mb-2">Animation</h3>
 			<button
@@ -712,24 +1039,32 @@
 					{#if document}
 						{#each document.pages as p, i (p.id)}
 							<button
-								class="relative w-32 h-24 rounded border-2 transition-all {currentPageIndex === i
+								class="relative w-32 h-24 rounded border-2 transition-all overflow-hidden {currentPageIndex === i
 									? 'border-pink-500 scale-105'
 									: 'border-zinc-300 hover:border-zinc-400'}"
 								on:click={() => switchToPage(i)}
 								on:keydown={(e) => e.key === 'Enter' && switchToPage(i)}
 							>
 								<!-- Page Thumbnail Preview -->
-								<div
-									class="w-full h-full rounded bg-white flex items-center justify-center text-xs text-zinc-400"
-									style="background-color: rgb({p.background.color.r}, {p.background.color.g}, {p
-										.background.color.b})"
-								>
-									{#if p.shapes.length === 0}
-										<span>Page {i + 1}</span>
-									{:else}
-										<span class="text-zinc-600">{p.shapes.length} shapes</span>
-									{/if}
-								</div>
+								{#if p.thumbnailUrl}
+									<img
+										src={p.thumbnailUrl}
+										alt="Page {i + 1} thumbnail"
+										class="w-full h-full object-contain rounded"
+									/>
+								{:else}
+									<div
+										class="w-full h-full rounded bg-white flex items-center justify-center text-xs text-zinc-400"
+										style="background-color: rgb({p.background.color.r}, {p.background.color.g}, {p
+											.background.color.b})"
+									>
+										{#if p.shapes.length === 0}
+											<span>Page {i + 1}</span>
+										{:else}
+											<span class="text-zinc-600">{p.shapes.length} shapes</span>
+										{/if}
+									</div>
+								{/if}
 							</button>
 						{/each}
 					{/if}
@@ -738,6 +1073,5 @@
 		</div>
 	</div>
 </div>
-
 <style>
 </style>

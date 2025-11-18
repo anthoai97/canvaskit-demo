@@ -13,10 +13,12 @@ export interface EditorPage {
 	height: number;
 	background: PageBackground;
 	shapes: Shape[];
+	thumbnailUrl?: string;
 }
 
 // Document/Project that contains multiple pages
 export interface EditorDocument {
 	id?: string;
 	pages: EditorPage[];
+	thumbnail?: string;
 }
