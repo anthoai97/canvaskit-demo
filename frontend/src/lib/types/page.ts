@@ -20,5 +20,4 @@ export interface EditorPage {
 export interface EditorDocument {
 	id?: string;
 	pages: EditorPage[];
-	thumbnail?: string;
 }

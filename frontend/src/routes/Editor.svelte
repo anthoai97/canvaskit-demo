@@ -233,12 +233,9 @@
 	// Reactive: Update current page when index changes (only after initialization)
 	$: if (
 		isInitialized &&
-		document &&
-		document.pages.length > 0 &&
-		ck &&
-		currentPageIndex >= 0 &&
-		currentPageIndex < document.pages.length
+		currentPageIndex >= 0
 	) {
+		console.log('Reactive: loadPage');
 		loadPage(currentPageIndex);
 	}
 
