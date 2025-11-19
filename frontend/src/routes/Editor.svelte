@@ -96,7 +96,7 @@
 	let isLoading = true;
 	let isInitialized = false;
 	let cleanupEvents: (() => void) | null = null;
-	
+
 	// ==================== Thumbnail State ====================
 	let shapesHash: string = '';
 	let isCapturingThumbnail = false;
@@ -157,7 +157,10 @@
 	/**
 	 * Starts animations for shapes
 	 */
-	const startShapeAnimations = (shapesToAnimate: Shape[], startTime: number = performance.now()) => {
+	const startShapeAnimations = (
+		shapesToAnimate: Shape[],
+		startTime: number = performance.now()
+	) => {
 		for (const shape of shapesToAnimate) {
 			if (shape.animation && shape.animation.type !== 'none') {
 				shape.animationStart = startTime;
@@ -193,7 +196,7 @@
 		// Reset camera to center
 		cameraState.panX = centerX;
 		cameraState.panY = centerY;
-		
+
 		// Clear selection
 		resetSelectedShape(selectedShape);
 		resetHoverState(hoverState);
@@ -231,11 +234,7 @@
 	};
 
 	// Reactive: Update current page when index changes (only after initialization)
-	$: if (
-		isInitialized &&
-		currentPageIndex >= 0
-	) {
-		console.log('Reactive: loadPage');
+	$: if (isInitialized && currentPageIndex >= 0) {
 		loadPage(currentPageIndex);
 	}
 
@@ -294,7 +293,7 @@
 			document = createDefaultDocument();
 			currentPageIndex = 0;
 		}
-		
+
 		// Reset background thumbnail processing flag when new document loads
 		backgroundThumbnailsStarted = false;
 	};
@@ -464,7 +463,6 @@
 				shape.width = width;
 				shape.height = height;
 				// Trigger reactivity by reassigning shapes array
-				console.log('onShapeResize: Shapes changed, scheduling capture');
 				shapes = [...shapes];
 				if (updateShapesHash()) {
 					scheduleThumbnailCapture();
@@ -484,7 +482,9 @@
 				selectedShape.rendered = false;
 			},
 			onSelectionClear: clearSelection,
-			onResizingCornerChange: (corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | null) => {
+			onResizingCornerChange: (
+				corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | null
+			) => {
 				resizingCorner = corner;
 			},
 			onResizeStartStateChange: (state: ResizeState | null) => {
@@ -535,7 +535,7 @@
 			canvasHeight,
 			devicePixelRatio: devicePixelRatioValue,
 			surface,
-			isValidShapeIndex,
+			isValidShapeIndex
 		};
 	};
 
@@ -596,10 +596,12 @@
 	const createEventContext = () => createEventHandlerContext();
 
 	const handleWheelEvent = (event: WheelEvent) => handleWheel(event, createEventContext());
-	const handleMouseMoveEvent = (event: MouseEvent) => handleMouseMove(event, createEventContext(), hoverCheckTimeout);
+	const handleMouseMoveEvent = (event: MouseEvent) =>
+		handleMouseMove(event, createEventContext(), hoverCheckTimeout);
 	const handleMouseDownEvent = (event: MouseEvent) => handleMouseDown(event, createEventContext());
 	const handleMouseUpEvent = (event: MouseEvent) => handleMouseUp(event, createEventContext());
-	const handleMouseLeaveEvent = (event: MouseEvent) => handleMouseLeave(event, createEventContext(), hoverCheckTimeout);
+	const handleMouseLeaveEvent = (event: MouseEvent) =>
+		handleMouseLeave(event, createEventContext(), hoverCheckTimeout);
 	const handleKeyDownEvent = (event: KeyboardEvent) => handleKeyDown(event, createEventContext());
 	const handleKeyUpEvent = (event: KeyboardEvent) => handleKeyUp(event, createEventContext());
 
@@ -651,7 +653,6 @@
 		return hashChanged;
 	};
 
-
 	/**
 	 * Captures thumbnail and stores it in the page object
 	 */
@@ -688,7 +689,6 @@
 						);
 						document = updatedDocument;
 						page = updatedPage;
-						console.log('Thumbnail captured and stored for page:', currentPage.id);
 					}
 				} catch (error) {
 					console.error('Error capturing thumbnail:', error);
@@ -718,7 +718,6 @@
 		}, delay);
 	};
 
-
 	// Watch for shape changes and schedule thumbnail capture
 	$: if (isInitialized && page && shapes.length > 0 && shapesHash !== '') {
 		const currentHash = generateShapesHash(shapes);
@@ -729,14 +728,19 @@
 	}
 
 	// Start background thumbnail processing when document is loaded (only once)
-	$: if (isInitialized && document && document.pages.length > 0 && !backgroundThumbnailsStarted && ck && fontMgr) {
+	$: if (
+		isInitialized &&
+		document &&
+		document.pages.length > 0 &&
+		!backgroundThumbnailsStarted &&
+		ck &&
+		fontMgr
+	) {
 		backgroundThumbnailsStarted = true;
 		scheduleBackgroundThumbnailProcessing(ck, fontMgr, document, (updatedDocument) => {
 			document = updatedDocument;
 		});
 	}
-
-	
 </script>
 
 <div class="flex h-screen">
@@ -775,16 +779,12 @@
 				</div>
 			</div>
 		</div>
-		<!-- Animation Controls -->
 		<div class="mb-4">
-			<h3 class="block text-xs font-medium text-zinc-400 uppercase mb-2">Animation</h3>
+			<h3 class="block text-xs font-medium text-zinc-400 uppercase mb-2">Actions</h3>
 			<button
-				class="w-full px-3 py-2 rounded-md {isAutoPlaying
-					? 'bg-red-600 hover:bg-red-500 active:bg-red-700'
-					: 'bg-sky-600 hover:bg-sky-500 active:bg-sky-700'} text-xs font-medium text-white transition-colors duration-150 shadow-sm hover:shadow"
-				on:click={toggleAutoPlay}
+				class="w-full px-3 py-2 rounded-md bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-xs font-medium text-white transition-colors duration-150 shadow-sm hover:shadow"
 			>
-				{isAutoPlaying ? 'Stop Auto-Play' : 'Play All Animations'}
+				Export Canvas to Video
 			</button>
 		</div>
 	</div>
@@ -835,7 +835,8 @@
 					{#if document}
 						{#each document.pages as p, i (p.id)}
 							<button
-								class="relative w-32 h-24 rounded border-2 transition-all overflow-hidden {currentPageIndex === i
+								class="relative w-32 h-24 rounded border-2 transition-all overflow-hidden {currentPageIndex ===
+								i
 									? 'border-pink-500 scale-105'
 									: 'border-zinc-300 hover:border-zinc-400'}"
 								on:click={() => switchToPage(i)}
@@ -869,5 +870,6 @@
 		</div>
 	</div>
 </div>
+
 <style>
 </style>

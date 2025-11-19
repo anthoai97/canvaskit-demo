@@ -173,7 +173,6 @@ export function drawShapeOverlays(context: RenderContext): void {
 
 	// Selected border
 	const selectedIndex = selectedShape.index;
-	console.log('[DRAW_SCENE] Selected index:', selectedIndex);
 	if (!isValidShapeIndex(selectedIndex) || selectedShape.rendered === true) return;
 
 	const shape = shapes[selectedIndex];
@@ -249,7 +248,6 @@ export function drawScene(context: RenderContext, onScheduleDraw: () => void): b
 	drawShapeOverlays(context);
 
 	skCanvas.restore();
-	console.log('[DRAW_SCENE] Rendered shapes:', context.page);
 	surface?.flush();
 
 	return isAnimating;

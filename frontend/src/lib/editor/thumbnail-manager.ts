@@ -146,7 +146,6 @@ export async function processPageThumbnail(
 
 		if (dataUrl && document) {
 			const { document: updatedDocument } = updatePageThumbnail(document, targetPage, dataUrl);
-			console.log(`Thumbnail captured for page ${pageIndex + 1}/${document.pages.length}:`, targetPage.id);
 			return updatedDocument;
 		}
 	} catch (error) {
