@@ -127,7 +127,15 @@ export function handleShapeDragging(event: MouseEvent, context: EventHandlerCont
 	context.mouseState.lastMouseX = currentMouseX;
 	context.mouseState.lastMouseY = currentMouseY;
 
-	context.onShapeDrag(context.hoverState.shapeIndex, deltaX, deltaY);
+	// Use selected shape index if hover state is invalid (when dragging selected shape)
+	const shapeIndexToDrag = context.isValidShapeIndex(context.hoverState.shapeIndex)
+		? context.hoverState.shapeIndex
+		: context.selectedShape.index;
+
+	if (context.isValidShapeIndex(shapeIndexToDrag)) {
+		context.onShapeDrag(shapeIndexToDrag, deltaX, deltaY);
+	}
+
 	updateCursor(context);
 	context.onScheduleDraw();
 }
@@ -259,9 +267,15 @@ export function handleMouseMove(
 	}
 
 	// Handle shape dragging
-	if (context.mouseState.isDragging && context.isValidShapeIndex(context.hoverState.shapeIndex)) {
-		handleShapeDragging(event, context);
-		return;
+	// Check if we're dragging a shape (either from hover state or selected shape)
+	if (context.mouseState.isDragging) {
+		const canDragHovered = context.isValidShapeIndex(context.hoverState.shapeIndex);
+		const canDragSelected = context.isValidShapeIndex(context.selectedShape.index);
+		
+		if (canDragHovered || canDragSelected) {
+			handleShapeDragging(event, context);
+			return;
+		}
 	}
 
 	// Handle hover detection
