@@ -18,7 +18,7 @@ export class VideoRecorder {
     /**
      * Prepares the recording.
      */
-    async prepare(canvas: HTMLCanvasElement, width: number, height: number, audioFile?: File) {
+    async prepare(canvas: HTMLCanvasElement, width: number, height: number, audioFile?: Blob) {
         // 1. Decode Audio (if any)
         this.audioBuffer = null;
         if (audioFile) {
@@ -27,6 +27,8 @@ export class VideoRecorder {
             this.audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
             audioContext.close();
         }
+
+				console.log('audioBuffer', this.audioBuffer);
 
         // 2. Initialize MediaBunny Output
         this.target = new BufferTarget();
