@@ -1,5 +1,6 @@
 import type { CanvasKit, Canvas, Paint, FontMgr } from 'canvaskit-wasm';
-import type { ImageShape, TextShape, ShapeAnimation } from '$lib/types/shape';
+import type { EditorPage } from '$lib/types/page';
+import type { Shape, ImageShape, TextShape, ShapeAnimation } from '$lib/types/shape';
 import { drawImageShape } from './image';
 import { drawTextShape } from './text';
 
@@ -264,3 +265,34 @@ export const drawAnimatedTextShape = (
 	return animState.isAnimating;
 };
 
+/**
+ * Calculates the maximum animation duration for a page
+ */
+export const getPageMaxAnimationDuration = (page: EditorPage): number => {
+	let maxDuration = 0;
+	for (const shape of page.shapes) {
+		if (shape.animation && shape.animation.type !== 'none') {
+			const duration = shape.animation.duration ?? DEFAULT_ANIMATION_DURATION;
+			const delay = shape.animation.delay ?? 0;
+			const total = duration + delay;
+			if (total > maxDuration) {
+				maxDuration = total;
+			}
+		}
+	}
+	return maxDuration;
+};
+
+/**
+ * Starts animations for shapes
+ */
+export const startShapeAnimations = (
+	shapesToAnimate: Shape[],
+	startTime: number = performance.now()
+) => {
+	for (const shape of shapesToAnimate) {
+		if (shape.animation && shape.animation.type !== 'none') {
+			shape.animationStart = startTime;
+		}
+	}
+};

@@ -67,11 +67,6 @@ export class VideoRecorder {
     async start() {
         if (!this.output) return;
         await this.output.start();
-
-        // Feed Audio immediately (it will be mixed in)
-        if (this.audioSource && this.audioBuffer) {
-            this.audioSource.add(this.audioBuffer).catch(e => console.error("Audio encoding error:", e));
-        }
     }
 
     /**
@@ -84,13 +79,40 @@ export class VideoRecorder {
         await this.videoSource.add(timestamp, duration);
     }
 
-    async stop(): Promise<Blob> {
+    async stop(duration?: number): Promise<Blob> {
         if (!this.output) return new Blob([], { type: 'video/mp4' });
+
+        // Add audio if available, trimmed to duration
+        if (this.audioSource && this.audioBuffer) {
+            let bufferToAdd = this.audioBuffer;
+
+            if (duration !== undefined && duration > 0) {
+                const sampleRate = this.audioBuffer.sampleRate;
+                const targetLength = Math.floor(duration * sampleRate);
+
+                if (targetLength < this.audioBuffer.length) {
+                    const newBuffer = new AudioBuffer({
+                        length: targetLength,
+                        numberOfChannels: this.audioBuffer.numberOfChannels,
+                        sampleRate: sampleRate
+                    });
+
+                    for (let i = 0; i < this.audioBuffer.numberOfChannels; i++) {
+                        const oldData = this.audioBuffer.getChannelData(i);
+                        const newData = newBuffer.getChannelData(i);
+                        newData.set(oldData.subarray(0, targetLength));
+                    }
+                    bufferToAdd = newBuffer;
+                }
+            }
+
+            await this.audioSource.add(bufferToAdd).catch((e) => console.error('Audio encoding error:', e));
+        }
 
         await this.output.finalize();
         const buffer = this.target?.buffer ?? new ArrayBuffer(0);
         const blob = new Blob([buffer], { type: 'video/mp4' });
-        
+
         this.cleanup();
         return blob;
     }

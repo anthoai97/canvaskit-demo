@@ -1,4 +1,8 @@
 <script lang="ts">
+	import {
+		getPageMaxAnimationDuration,
+		startShapeAnimations
+	} from '$lib/canvakit/animation';
 	import { createWebGLSurface, initCanvasKit } from '$lib/canvakit/canvas';
 	import { createPaints } from '$lib/canvakit/drawing';
 	import { loadFonts, preloadFonts } from '$lib/canvakit/font';
@@ -46,6 +50,10 @@ type ExportResolution = '720p' | '1080p' | '2k';
 	let exportResolution: ExportResolution = '1080p';
 	let recordingTimeSec = 0;
 	let recordingLastTimestamp: number | null = null;
+	let recordingDocument: EditorDocument | null = null;
+	let recordingPageIndex = 0;
+	let recordingPageStartTimestamp: number | null = null;
+	let recordingWasAnimating = false;
 
 	const getExportSize = (resolution: ExportResolution) => {
 		switch (resolution) {
@@ -69,9 +77,11 @@ type ExportResolution = '720p' | '1080p' | '2k';
 	const finishRecording = async () => {
 		if (!isRecording) return;
 
-		// Stop Recording
-		const blob = await recorder.stop();
+		// Stop recording loop immediately
 		isRecording = false;
+
+		// Stop Recording
+		const blob = await recorder.stop(recordingTimeSec);
 		recordingLastTimestamp = null;
 
 		// Clean up recording surface
@@ -119,12 +129,23 @@ type ExportResolution = '720p' | '1080p' | '2k';
 			// Prepare & start recorder
 			recordingTimeSec = 0;
 			recordingLastTimestamp = null;
+			
+			// Snapshot document for independent recording
+			recordingDocument = {
+				...document!,
+				pages: document!.pages.map((p) => ({
+					...p,
+					shapes: p.shapes.map((s) => ({ ...s }))
+				}))
+			};
+			recordingPageIndex = 0;
+			recordingPageStartTimestamp = null;
+			recordingWasAnimating = false;
+
 			await recorder.prepare(recordingCanvas, width, height, audioFile || undefined);
 			await recorder.start();
 			isRecording = true;
-
-			// Start animation to capture movement
-			if (!isAutoPlaying) toggleAutoPlay();
+			recordLoop();
 		}
 	};
 
@@ -251,19 +272,6 @@ type ExportResolution = '720p' | '1080p' | '2k';
 		return shapesToCheck.some((shape) => shape.animation && shape.animation.type !== 'none');
 	};
 
-	/**
-	 * Starts animations for shapes
-	 */
-	const startShapeAnimations = (
-		shapesToAnimate: Shape[],
-		startTime: number = performance.now()
-	) => {
-		for (const shape of shapesToAnimate) {
-			if (shape.animation && shape.animation.type !== 'none') {
-				shape.animationStart = startTime;
-			}
-		}
-	};
 
 	// ==================== Page Management ====================
 
@@ -353,11 +361,14 @@ type ExportResolution = '720p' | '1080p' | '2k';
 	// ==================== WebSocket ====================
 
 	const setupWebSocket = () => {
-		ws = new StableWebSocket();
+		// TODO: Implement WebSocket
+		return;
 
-		ws.addMessageListener((event) => {
-			wsMessages = [...wsMessages.slice(-19), event.data];
-		});
+		// ws = new StableWebSocket();
+
+		// ws.addMessageListener((event) => {
+		// 	wsMessages = [...wsMessages.slice(-19), event.data];
+		// });
 	};
 
 	// ==================== Initialization ====================
@@ -445,7 +456,7 @@ type ExportResolution = '720p' | '1080p' | '2k';
 
 	onDestroy(() => {
 		cleanupEvents?.();
-		ws?.close();
+		// ws?.close();
 		if (animationFrameId !== null) {
 			cancelAnimationFrame(animationFrameId);
 		}
@@ -655,6 +666,125 @@ type ExportResolution = '720p' | '1080p' | '2k';
 		loadingAnimationId = requestAnimationFrame(animate);
 	};
 
+
+	const recordLoop = async () => {
+		if (!isRecording || !recordingDocument) return;
+
+		const now = performance.now();
+		const page = recordingDocument.pages[recordingPageIndex];
+
+		// 1. Ensure images loaded
+		// We can check if shapes with kind='image' have 'image' property
+		const needsLoad = page.shapes.some((s) => s.kind === 'image' && !s.image);
+		if (needsLoad) {
+			// Load images
+			const loaded = await loadPageImages(ck, page);
+			page.shapes = loaded;
+		}
+
+		// 2. Initialize Page (Start Animations)
+		if (recordingPageStartTimestamp === null) {
+			recordingPageStartTimestamp = now;
+			startShapeAnimations(page.shapes, now);
+		}
+
+		// 3. Draw & Capture
+		// We need to pass the RECORDING page to drawRecordingFrame
+		drawRecordingFrame(page, now);
+
+		// 4. Check for Page Switch
+		const timeOnPage = now - recordingPageStartTimestamp;
+		const maxDuration = getPageMaxAnimationDuration(page);
+
+		// Wait at least 2s for static pages, or max animation time + 500ms buffer for animated pages
+		const requiredTime = maxDuration === 0 ? 2000 : maxDuration + 500;
+
+		if (timeOnPage > requiredTime) {
+			const nextIndex = recordingPageIndex + 1;
+			if (nextIndex >= recordingDocument.pages.length) {
+				await finishRecording();
+				return;
+			} else {
+				recordingPageIndex = nextIndex;
+				recordingPageStartTimestamp = null;
+				// Loop continues to next page
+			}
+		}
+
+		requestAnimationFrame(recordLoop);
+	};
+
+	/**
+	 * Draws a frame for the video recording
+	 */
+	const drawRecordingFrame = (targetPage: EditorPage, now: number): boolean => {
+		if (!isRecording || !recordingSurface || !recordingSkCanvas || !ck || !fontMgr) return false;
+
+		const exportWidth = recordingCanvas.width || targetPage.width;
+		const exportHeight = recordingCanvas.height || targetPage.height;
+		const zoom = exportWidth / targetPage.width;
+
+		// Clear the recording canvas explicitly before drawing
+		recordingSkCanvas.clear(ck.Color(0, 0, 0, 1.0));
+
+		// Calculate page bounds for this specific page
+		const targetPageBounds = ck.XYWHRect(
+			-targetPage.width / 2,
+			-targetPage.height / 2,
+			targetPage.width,
+			targetPage.height
+		);
+
+		// Create paints for this specific page (background color might differ)
+		const recordingPaints = createPaints(ck, targetPage);
+
+		const recordingContext: RenderContext = {
+			skCanvas: recordingSkCanvas,
+			ck,
+			paints: recordingPaints,
+			lowOpacityPaint: lowOpacityPaint!, // Assuming initialized
+			pageBounds: targetPageBounds,
+			fontMgr,
+			page: targetPage,
+			shapes: targetPage.shapes,
+			surface: recordingSurface,
+			canvasWidth: exportWidth,
+			canvasHeight: exportHeight,
+			devicePixelRatio: 1,
+			cameraState: {
+				panX: exportWidth / 2,
+				panY: exportHeight / 2,
+				zoom,
+				isPanning: false
+			},
+			// Disable overlays in export
+			selectedShape: { index: INVALID_INDEX, rendered: false },
+			hoverState: { shapeIndex: INVALID_INDEX, resizeCorner: null, isHoveringRotateCircle: false },
+			isValidShapeIndex: () => false
+		};
+
+		recordingSkCanvas.save();
+		// Pass empty callback to avoid triggering main scene redraw
+		const isAnimating = renderScene(recordingContext, () => {}, now);
+		recordingSkCanvas.restore();
+
+		// Clean up recording paints
+		Object.values(recordingPaints).forEach((p) => p.delete());
+
+		// Capture frame for encoder
+		if (recordingLastTimestamp === null) {
+			recordingLastTimestamp = now;
+		}
+		const dtSec = (now - recordingLastTimestamp) / 1000;
+		recordingLastTimestamp = now;
+		const frameTimestamp = recordingTimeSec;
+		recordingTimeSec += dtSec;
+		
+		recorder.captureFrame(frameTimestamp, dtSec).catch((err) => console.error('captureFrame error:', err));
+
+		return isAnimating;
+	};
+
 	/**
 	 * Main scene drawing function
 	 */
@@ -674,107 +804,18 @@ type ExportResolution = '720p' | '1080p' | '2k';
 		try {
 			const baseContext = createRenderContext();
 			const now = performance.now();
-			let isAnimating = false;
-
-			if (isRecording && recordingSurface && recordingSkCanvas && page) {
-				const exportWidth = recordingCanvas.width || page.width;
-				const exportHeight = recordingCanvas.height || page.height;
-				const zoom = exportWidth / page.width;
-
-				const recordingContext: RenderContext = {
-					...baseContext,
-					skCanvas: recordingSkCanvas,
-					surface: recordingSurface,
-					canvasWidth: exportWidth,
-					canvasHeight: exportHeight,
-					devicePixelRatio: 1,
-					cameraState: {
-						panX: exportWidth / 2,
-						panY: exportHeight / 2,
-						zoom,
-						isPanning: false
-					},
-					// Disable overlays in export
-					selectedShape: { index: INVALID_INDEX, rendered: false },
-					hoverState: { shapeIndex: INVALID_INDEX, resizeCorner: null, isHoveringRotateCircle: false }
-				};
-
-				isAnimating = renderScene(recordingContext, scheduleDraw, now);
-
-				// Capture frame for encoder (background export)
-				if (isRecording) {
-					if (recordingLastTimestamp === null) {
-						recordingLastTimestamp = now;
-					}
-					const dtSec = (now - recordingLastTimestamp) / 1000;
-					recordingLastTimestamp = now;
-					const frameTimestamp = recordingTimeSec;
-					recordingTimeSec += dtSec;
-					recorder
-						.captureFrame(frameTimestamp, dtSec)
-						.catch((err) => console.error('captureFrame error:', err));
-				}
-			} else {
-				// Normal on-screen rendering
-				isAnimating = renderScene(baseContext, scheduleDraw, now);
-			}
-
+			
+			// Always render the main scene
+			const isAnimating = renderScene(baseContext, scheduleDraw, now);
 			const animationsJustCompleted = wasAnimating && !isAnimating;
 
 			if (isAutoPlaying && animationsJustCompleted && document && document.pages.length > 0) {
 				const nextPageIndex = (currentPageIndex + 1) % document.pages.length;
-				// If we wrapped around to the first page, we've finished all pages
-				if (nextPageIndex === 0 && isRecording) {
-					finishRecording();
-				}
+				
 				switchToPage(nextPageIndex);
 			}
 
 			wasAnimating = isAnimating;
-
-			// Render to recording surface if active
-			if (isRecording && recordingSurface && recordingSkCanvas && page) {
-				const exportWidth = recordingCanvas.width || page.width;
-				const exportHeight = recordingCanvas.height || page.height;
-				const zoom = exportWidth / page.width;
-
-				recordingSkCanvas.clear(ck.Color(0, 0, 0, 1.0));
-				recordingSkCanvas.save();
-
-				// No devicePixelRatio scaling for recording canvas (it's 1:1)
-				// The renderScene function applies translation based on cameraState.panX/Y
-				// Since we set panX/Y to page.width/2 and page.height/2 below, renderScene
-				// will automatically translate to center.
-				// DO NOT manually translate here, otherwise it gets applied twice!
-				
-				// No zoom needed (zoom = 1)
-
-				// Use viewport that matches the full page
-				// We can pass a dummy viewport or calculated one, but drawAllShapes checks viewport visibility.
-				// Ideally we pass a viewport that covers the whole page.
-				const recordingContext: RenderContext = {
-					...baseContext,
-					skCanvas: recordingSkCanvas,
-					surface: recordingSurface,
-					canvasWidth: exportWidth,
-					canvasHeight: exportHeight,
-					devicePixelRatio: 1,
-					cameraState: {
-						panX: exportWidth / 2,
-						panY: exportHeight / 2,
-						zoom,
-						isPanning: false
-					},
-					// Disable selected/hover drawing by passing invalid indices if needed, 
-					// but renderScene handles drawing them. We usually don't want hover/selection in export.
-					selectedShape: { index: INVALID_INDEX, rendered: false },
-					hoverState: { shapeIndex: INVALID_INDEX, resizeCorner: null, isHoveringRotateCircle: false }
-				};
-
-				renderScene(recordingContext, () => {});
-				
-				recordingSkCanvas.restore(); // Actually renderScene restores its own saves, but we cleared before calling.
-			}
 
 		} catch (error) {
 			console.error('Error rendering scene:', error);
