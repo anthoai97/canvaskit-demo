@@ -40,6 +40,7 @@
 	},
 	"dependencies": {
 		"@fontsource-variable/noto-sans": "^5.2.10",
-		"canvaskit-wasm": "^0.40.0"
+		"canvaskit-wasm": "^0.40.0",
+		"mediabunny": "^1.25.0"
 	}
 }

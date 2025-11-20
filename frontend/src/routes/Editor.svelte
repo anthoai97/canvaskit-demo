@@ -12,7 +12,7 @@
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { loadDocument, createDefaultDocument, loadPageImages } from '$lib/editor/document-loader';
 	import { drawScene as renderScene, type RenderContext } from '$lib/editor/scene-renderer';
-	import { drawLoadingScreen, type LoadingRenderContext } from '$lib/editor/loading-renderer';
+import { drawLoadingScreen, type LoadingRenderContext } from '$lib/editor/loading-renderer';
 	import {
 		handleWheel,
 		handleMouseMove,
@@ -31,16 +31,113 @@
 		scheduleBackgroundThumbnailProcessing,
 		getThumbnailCaptureDelay
 	} from '$lib/editor/thumbnail-manager';
+import { VideoRecorder } from '$lib/utils/video-recorder';
+
+type ExportResolution = '720p' | '1080p' | '2k';
 
 	// ==================== DOM References ====================
 	let editor: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
+
+	// ==================== Recording State ====================
+	let audioFile: File | null = null;
+	let isRecording = false;
+	const recorder = new VideoRecorder();
+	let exportResolution: ExportResolution = '1080p';
+	let recordingTimeSec = 0;
+	let recordingLastTimestamp: number | null = null;
+
+	const getExportSize = (resolution: ExportResolution) => {
+		switch (resolution) {
+			case '720p':
+				return { width: 1280, height: 720 };
+			case '2k':
+				return { width: 2560, height: 1440 };
+			case '1080p':
+			default:
+				return { width: 1920, height: 1080 };
+		}
+	};
+
+	const handleAudioUpload = (event: Event) => {
+		const target = event.target as HTMLInputElement;
+		if (target.files && target.files.length > 0) {
+			audioFile = target.files[0];
+		}
+	};
+
+	const finishRecording = async () => {
+		if (!isRecording) return;
+
+		// Stop Recording
+		const blob = await recorder.stop();
+		isRecording = false;
+		recordingLastTimestamp = null;
+
+		// Clean up recording surface
+		if (recordingSurface) {
+			recordingSurface.delete();
+			recordingSurface = null;
+			recordingSkCanvas = null;
+		}
+
+		// Stop animation if it was playing
+		if (isAutoPlaying) toggleAutoPlay();
+
+		// Download the file
+		const url = URL.createObjectURL(blob);
+		const a = window.document.createElement('a');
+		a.href = url;
+		// Determine extension based on MIME type (usually webm or mp4)
+		const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+		a.download = `canvas-export.${ext}`;
+		window.document.body.appendChild(a);
+		a.click();
+		window.document.body.removeChild(a);
+		URL.revokeObjectURL(url);
+	};
+
+	const toggleRecording = async () => {
+		if (isRecording) {
+			await finishRecording();
+		} else {
+			if (!page || !ck) return;
+
+			// Setup recording canvas
+			const { width, height } = getExportSize(exportResolution);
+			recordingCanvas.width = width;
+			recordingCanvas.height = height;
+			
+			// Initialize recording surface
+			recordingSurface = createWebGLSurface(ck, recordingCanvas);
+			if (!recordingSurface) {
+				console.error('Failed to create recording surface');
+				return;
+			}
+			recordingSkCanvas = recordingSurface.getCanvas();
+
+			// Prepare & start recorder
+			recordingTimeSec = 0;
+			recordingLastTimestamp = null;
+			await recorder.prepare(recordingCanvas, width, height, audioFile || undefined);
+			await recorder.start();
+			isRecording = true;
+
+			// Start animation to capture movement
+			if (!isAutoPlaying) toggleAutoPlay();
+		}
+	};
 
 	// ==================== CanvasKit State ====================
 	let ck: CanvasKit;
 	let surface: Surface | null = null;
 	let skCanvas: Canvas | null = null;
 	let fontMgr: FontMgr | null = null;
+
+	// Recording Surface State
+	let recordingCanvas: HTMLCanvasElement;
+	let recordingSurface: Surface | null = null;
+	let recordingSkCanvas: Canvas | null = null;
 
 	// ==================== Canvas Dimensions ====================
 	let canvasWidth: number;
@@ -575,17 +672,110 @@
 		validateSelectedShape();
 
 		try {
-			const renderContext = createRenderContext();
-			const isAnimating = renderScene(renderContext, scheduleDraw);
+			const baseContext = createRenderContext();
+			const now = performance.now();
+			let isAnimating = false;
+
+			if (isRecording && recordingSurface && recordingSkCanvas && page) {
+				const exportWidth = recordingCanvas.width || page.width;
+				const exportHeight = recordingCanvas.height || page.height;
+				const zoom = exportWidth / page.width;
+
+				const recordingContext: RenderContext = {
+					...baseContext,
+					skCanvas: recordingSkCanvas,
+					surface: recordingSurface,
+					canvasWidth: exportWidth,
+					canvasHeight: exportHeight,
+					devicePixelRatio: 1,
+					cameraState: {
+						panX: exportWidth / 2,
+						panY: exportHeight / 2,
+						zoom,
+						isPanning: false
+					},
+					// Disable overlays in export
+					selectedShape: { index: INVALID_INDEX, rendered: false },
+					hoverState: { shapeIndex: INVALID_INDEX, resizeCorner: null, isHoveringRotateCircle: false }
+				};
+
+				isAnimating = renderScene(recordingContext, scheduleDraw, now);
+
+				// Capture frame for encoder (background export)
+				if (isRecording) {
+					if (recordingLastTimestamp === null) {
+						recordingLastTimestamp = now;
+					}
+					const dtSec = (now - recordingLastTimestamp) / 1000;
+					recordingLastTimestamp = now;
+					const frameTimestamp = recordingTimeSec;
+					recordingTimeSec += dtSec;
+					recorder
+						.captureFrame(frameTimestamp, dtSec)
+						.catch((err) => console.error('captureFrame error:', err));
+				}
+			} else {
+				// Normal on-screen rendering
+				isAnimating = renderScene(baseContext, scheduleDraw, now);
+			}
 
 			const animationsJustCompleted = wasAnimating && !isAnimating;
 
 			if (isAutoPlaying && animationsJustCompleted && document && document.pages.length > 0) {
 				const nextPageIndex = (currentPageIndex + 1) % document.pages.length;
+				// If we wrapped around to the first page, we've finished all pages
+				if (nextPageIndex === 0 && isRecording) {
+					finishRecording();
+				}
 				switchToPage(nextPageIndex);
 			}
 
 			wasAnimating = isAnimating;
+
+			// Render to recording surface if active
+			if (isRecording && recordingSurface && recordingSkCanvas && page) {
+				const exportWidth = recordingCanvas.width || page.width;
+				const exportHeight = recordingCanvas.height || page.height;
+				const zoom = exportWidth / page.width;
+
+				recordingSkCanvas.clear(ck.Color(0, 0, 0, 1.0));
+				recordingSkCanvas.save();
+
+				// No devicePixelRatio scaling for recording canvas (it's 1:1)
+				// The renderScene function applies translation based on cameraState.panX/Y
+				// Since we set panX/Y to page.width/2 and page.height/2 below, renderScene
+				// will automatically translate to center.
+				// DO NOT manually translate here, otherwise it gets applied twice!
+				
+				// No zoom needed (zoom = 1)
+
+				// Use viewport that matches the full page
+				// We can pass a dummy viewport or calculated one, but drawAllShapes checks viewport visibility.
+				// Ideally we pass a viewport that covers the whole page.
+				const recordingContext: RenderContext = {
+					...baseContext,
+					skCanvas: recordingSkCanvas,
+					surface: recordingSurface,
+					canvasWidth: exportWidth,
+					canvasHeight: exportHeight,
+					devicePixelRatio: 1,
+					cameraState: {
+						panX: exportWidth / 2,
+						panY: exportHeight / 2,
+						zoom,
+						isPanning: false
+					},
+					// Disable selected/hover drawing by passing invalid indices if needed, 
+					// but renderScene handles drawing them. We usually don't want hover/selection in export.
+					selectedShape: { index: INVALID_INDEX, rendered: false },
+					hoverState: { shapeIndex: INVALID_INDEX, resizeCorner: null, isHoveringRotateCircle: false }
+				};
+
+				renderScene(recordingContext, () => {});
+				
+				recordingSkCanvas.restore(); // Actually renderScene restores its own saves, but we cleared before calling.
+			}
+
 		} catch (error) {
 			console.error('Error rendering scene:', error);
 		}
@@ -781,10 +971,57 @@
 		</div>
 		<div class="mb-4">
 			<h3 class="block text-xs font-medium text-zinc-400 uppercase mb-2">Actions</h3>
+			
+			<div class="mb-2">
+				<label class="text-xs text-zinc-500 block mb-1">
+					Audio Track (Optional)
+					<input 
+						type="file" 
+						accept="audio/*" 
+						on:change={handleAudioUpload}
+						class="mt-1 text-xs w-full text-zinc-400 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-zinc-800 file:text-zinc-300 hover:file:bg-zinc-700"
+					/>
+				</label>
+			</div>
+
+			<div class="mb-3">
+				<div class="text-xs text-zinc-500 mb-1">Resolution</div>
+				<div class="flex flex-wrap gap-1">
+					<button
+						type="button"
+						class="px-2 py-1 rounded text-[11px] border transition-colors {exportResolution === '720p'
+							? 'bg-sky-600 text-white border-sky-500'
+							: 'bg-zinc-900 text-zinc-300 border-zinc-700 hover:border-sky-500'}"
+						on:click={() => (exportResolution = '720p')}
+					>
+						720p
+					</button>
+					<button
+						type="button"
+						class="px-2 py-1 rounded text-[11px] border transition-colors {exportResolution === '1080p'
+							? 'bg-sky-600 text-white border-sky-500'
+							: 'bg-zinc-900 text-zinc-300 border-zinc-700 hover:border-sky-500'}"
+						on:click={() => (exportResolution = '1080p')}
+					>
+						1080p
+					</button>
+					<button
+						type="button"
+						class="px-2 py-1 rounded text-[11px] border transition-colors {exportResolution === '2k'
+							? 'bg-sky-600 text-white border-sky-500'
+							: 'bg-zinc-900 text-zinc-300 border-zinc-700 hover:border-sky-500'}"
+						on:click={() => (exportResolution = '2k')}
+					>
+						2K
+					</button>
+				</div>
+			</div>
+
 			<button
-				class="w-full px-3 py-2 rounded-md bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-xs font-medium text-white transition-colors duration-150 shadow-sm hover:shadow"
+				class="w-full px-3 py-2 rounded-md {isRecording ? 'bg-rose-600 hover:bg-rose-500 active:bg-rose-700' : 'bg-sky-600 hover:bg-sky-500 active:bg-sky-700'} text-xs font-medium text-white transition-colors duration-150 shadow-sm hover:shadow"
+				on:click={toggleRecording}
 			>
-				Export Canvas to Video
+				{isRecording ? 'Stop & Save Video' : 'Export Canvas to Video'}
 			</button>
 		</div>
 	</div>
@@ -798,6 +1035,12 @@
 		>
 			<canvas id="canvas" bind:this={canvas}></canvas>
 		</div>
+		
+		<!-- Hidden Recording Canvas -->
+		<canvas 
+			bind:this={recordingCanvas}
+			class="fixed top-0 left-0 opacity-0 pointer-events-none -z-50"
+		></canvas>
 
 		<!-- Timeline/Page View -->
 		<div class="h-[120px] bg-white border-t border-zinc-200 flex flex-col">

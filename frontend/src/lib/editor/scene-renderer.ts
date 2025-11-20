@@ -204,7 +204,7 @@ export function drawShapeOverlays(context: RenderContext): void {
 /**
  * Main scene drawing function
  */
-export function drawScene(context: RenderContext, onScheduleDraw: () => void): boolean {
+export function drawScene(context: RenderContext, onScheduleDraw: () => void, time?: number): boolean {
 	const {
 		skCanvas,
 		ck,
@@ -233,7 +233,7 @@ export function drawScene(context: RenderContext, onScheduleDraw: () => void): b
 
 	// Calculate visible viewport for culling
 	const viewport = calculateViewport(canvasWidth, canvasHeight, cameraState);
-	const now = performance.now();
+	const now = time ?? performance.now();
 
 	// Draw background
 	drawBackground(skCanvas, ck, context.page, paints.background);
