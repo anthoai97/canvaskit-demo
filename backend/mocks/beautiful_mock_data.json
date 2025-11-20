@@ -1,0 +1,757 @@
+{
+	"id": "1",
+	"pages": [
+			{
+				"id": "1",
+				"width": 1920,
+				"height": 1080,
+				"background": {
+					"color": {
+						"r": 255,
+						"g": 255,
+						"b": 255,
+						"a": 1.0
+					}
+				},
+				"shapes": [
+					{
+						"kind": "text",
+						"x": -450,
+						"y": -520,
+						"width": 980,
+						"height": 120,
+						"text": "Welcome to CanvasKit Editor",
+						"fontSize": 72,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#111827",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "fade",
+							"duration": 800,
+							"delay": 0
+						}
+					},
+					{
+						"kind": "text",
+						"x": -400,
+						"y": -380,
+						"width": 800,
+						"height": 70,
+						"text": "A powerful canvas-based editor with smooth animations and rich text support",
+						"fontSize": 26,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 400,
+						"fontStyle": "normal",
+						"fontColor": "#6B7280",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "pan",
+							"duration": 900,
+							"delay": 400,
+							"direction": "left"
+						}
+					},
+					{
+						"kind": "image",
+						"x": -800,
+						"y": -250,
+						"width": 480,
+						"height": 340,
+						"ratio": 0,
+						"url": "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1600",
+						"image": null,
+						"rotate": -3,
+						"animation": {
+							"type": "wipe",
+							"duration": 1000,
+							"delay": 800
+						}
+					},
+					{
+						"kind": "text",
+						"x": -200,
+						"y": -200,
+						"width": 500,
+						"height": 65,
+						"text": "Stunning Visuals",
+						"fontSize": 38,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#111827",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "raise",
+							"duration": 800,
+							"delay": 1200
+						}
+					},
+					{
+						"kind": "text",
+						"x": -200,
+						"y": -120,
+						"width": 500,
+						"height": 160,
+						"text": "Experience high-resolution imagery with smooth transitions and professional animations that bring your content to life.",
+						"fontSize": 20,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 400,
+						"fontStyle": "normal",
+						"fontColor": "#374151",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "wipe",
+							"duration": 1000,
+							"delay": 1500
+						}
+					},
+					{
+						"kind": "image",
+						"x": 400,
+						"y": -250,
+						"width": 480,
+						"height": 330,
+						"ratio": 0,
+						"url": "https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=1600",
+						"image": null,
+						"rotate": 5,
+						"animation": {
+							"type": "raise",
+							"duration": 900,
+							"delay": 1800
+						}
+					},
+					{
+						"kind": "text",
+						"x": -800,
+						"y": 50,
+						"width": 480,
+						"height": 65,
+						"text": "Dynamic Animations",
+						"fontSize": 38,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#065F46",
+						"fontOpacity": 1,
+						"rotate": -2,
+						"animation": {
+							"type": "pan",
+							"duration": 800,
+							"delay": 2100,
+							"direction": "right"
+						}
+					},
+					{
+						"kind": "text",
+						"x": -800,
+						"y": 130,
+						"width": 480,
+						"height": 150,
+						"text": "Choose from multiple animation styles: wipe, fade, raise, and pan effects that create engaging presentations.",
+						"fontSize": 20,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 500,
+						"fontStyle": "normal",
+						"fontColor": "#047857",
+						"fontOpacity": 1,
+						"rotate": -2,
+						"animation": {
+							"type": "fade",
+							"duration": 1000,
+							"delay": 2400
+						}
+					},
+					{
+						"kind": "image",
+						"x": -850,
+						"y": 300,
+						"width": 450,
+						"height": 320,
+						"ratio": 0,
+						"url": "https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=1600",
+						"image": null,
+						"rotate": -8,
+						"animation": {
+							"type": "pan",
+							"duration": 900,
+							"delay": 2700,
+							"direction": "left"
+						}
+					},
+					{
+						"kind": "text",
+						"x": -300,
+						"y": 50,
+						"width": 480,
+						"height": 65,
+						"text": "Rich Text Support",
+						"fontSize": 38,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#7C2D12",
+						"fontOpacity": 1,
+						"rotate": 2,
+						"animation": {
+							"type": "raise",
+							"duration": 800,
+							"delay": 3000
+						}
+					},
+					{
+						"kind": "text",
+						"x": -300,
+						"y": 130,
+						"width": 480,
+						"height": 150,
+						"text": "Format your text with custom fonts, sizes, colors, and styles. Perfect for creating professional documents and presentations.",
+						"fontSize": 20,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 500,
+						"fontStyle": "italic",
+						"fontColor": "#92400E",
+						"fontOpacity": 1,
+						"rotate": 2,
+						"animation": {
+							"type": "wipe",
+							"duration": 1000,
+							"delay": 3300
+						}
+					},
+					{
+						"kind": "image",
+						"x": 300,
+						"y": 50,
+						"width": 480,
+						"height": 340,
+						"ratio": 0,
+						"url": "https://images.unsplash.com/photo-1519681393784-d120267933ba?w=1600",
+						"image": null,
+						"rotate": 10,
+						"animation": {
+							"type": "fade",
+							"duration": 1000,
+							"delay": 3600
+						}
+					},
+					{
+						"kind": "text",
+						"x": -500,
+						"y": 300,
+						"width": 550,
+						"height": 65,
+						"text": "High Performance",
+						"fontSize": 40,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#BE123C",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "pan",
+							"duration": 800,
+							"delay": 3900,
+							"direction": "right"
+						}
+					},
+					{
+						"kind": "text",
+						"x": -500,
+						"y": 380,
+						"width": 550,
+						"height": 130,
+						"text": "Built with CanvasKit for blazing-fast rendering. Handle complex scenes with hundreds of elements without lag.",
+						"fontSize": 21,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 500,
+						"fontStyle": "normal",
+						"fontColor": "#DC2626",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "wipe",
+							"duration": 900,
+							"delay": 4200
+						}
+					},
+					{
+						"kind": "image",
+						"x": -750,
+						"y": 300,
+						"width": 450,
+						"height": 320,
+						"ratio": 0,
+						"url": "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1600",
+						"image": null,
+						"rotate": -6,
+						"animation": {
+							"type": "pan",
+							"duration": 900,
+							"delay": 4500,
+							"direction": "right"
+						}
+					},
+					{
+						"kind": "text",
+						"x": 200,
+						"y": 300,
+						"width": 550,
+						"height": 65,
+						"text": "Interactive Editing",
+						"fontSize": 40,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#0F766E",
+						"fontOpacity": 1,
+						"rotate": 3,
+						"animation": {
+							"type": "raise",
+							"duration": 800,
+							"delay": 4800
+						}
+					},
+					{
+						"kind": "text",
+						"x": 200,
+						"y": 380,
+						"width": 550,
+						"height": 130,
+						"text": "Select, drag, resize, and rotate elements with intuitive controls. Every interaction feels smooth and responsive.",
+						"fontSize": 21,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 500,
+						"fontStyle": "normal",
+						"fontColor": "#0D9488",
+						"fontOpacity": 1,
+						"rotate": 3,
+						"animation": {
+							"type": "fade",
+							"duration": 900,
+							"delay": 5100
+						}
+					},
+					{
+						"kind": "image",
+						"x": 400,
+						"y": 300,
+						"width": 480,
+						"height": 340,
+						"ratio": 0,
+						"url": "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=1600",
+						"image": null,
+						"rotate": 8,
+						"animation": {
+							"type": "fade",
+							"duration": 1000,
+							"delay": 5400
+						}
+					},
+					{
+						"kind": "text",
+						"x": -350,
+						"y": 460,
+						"width": 900,
+						"height": 80,
+						"text": "Start Creating Today",
+						"fontSize": 56,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#111827",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "raise",
+							"duration": 1000,
+							"delay": 5700
+						}
+					}
+				]
+			},
+			{
+				"id": "2",
+				"width": 1920,
+				"height": 1080,
+				"background": {
+					"color": {
+						"r": 255,
+						"g": 165,
+						"b": 0,
+						"a": 0.5
+					}
+				},
+				"shapes": [
+					{
+						"kind": "text",
+						"x": -450,
+						"y": -520,
+						"width": 980,
+						"height": 120,
+						"text": "Welcome to CanvasKit Editor",
+						"fontSize": 72,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#111827",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "fade",
+							"duration": 800,
+							"delay": 0
+						}
+					},
+					{
+						"kind": "text",
+						"x": -400,
+						"y": -380,
+						"width": 800,
+						"height": 70,
+						"text": "A powerful canvas-based editor with smooth animations and rich text support",
+						"fontSize": 26,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 400,
+						"fontStyle": "normal",
+						"fontColor": "#6B7280",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "pan",
+							"duration": 900,
+							"delay": 400,
+							"direction": "left"
+						}
+					},
+					{
+						"kind": "image",
+						"x": -800,
+						"y": -250,
+						"width": 480,
+						"height": 340,
+						"ratio": 0,
+						"url": "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1600",
+						"image": null,
+						"rotate": -3,
+						"animation": {
+							"type": "wipe",
+							"duration": 1000,
+							"delay": 800
+						}
+					},
+					{
+						"kind": "text",
+						"x": -200,
+						"y": -200,
+						"width": 500,
+						"height": 65,
+						"text": "Stunning Visuals",
+						"fontSize": 38,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#111827",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "raise",
+							"duration": 800,
+							"delay": 1200
+						}
+					},
+					{
+						"kind": "text",
+						"x": -200,
+						"y": -120,
+						"width": 500,
+						"height": 160,
+						"text": "Experience high-resolution imagery with smooth transitions and professional animations that bring your content to life.",
+						"fontSize": 20,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 400,
+						"fontStyle": "normal",
+						"fontColor": "#374151",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "wipe",
+							"duration": 1000,
+							"delay": 1500
+						}
+					},
+					{
+						"kind": "image",
+						"x": 400,
+						"y": -250,
+						"width": 480,
+						"height": 330,
+						"ratio": 0,
+						"url": "https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=1600",
+						"image": null,
+						"rotate": 5,
+						"animation": {
+							"type": "raise",
+							"duration": 900,
+							"delay": 1800
+						}
+					},
+					{
+						"kind": "text",
+						"x": -800,
+						"y": 50,
+						"width": 480,
+						"height": 65,
+						"text": "Dynamic Animations",
+						"fontSize": 38,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#065F46",
+						"fontOpacity": 1,
+						"rotate": -2,
+						"animation": {
+							"type": "pan",
+							"duration": 800,
+							"delay": 2100,
+							"direction": "right"
+						}
+					},
+					{
+						"kind": "text",
+						"x": -800,
+						"y": 130,
+						"width": 480,
+						"height": 150,
+						"text": "Choose from multiple animation styles: wipe, fade, raise, and pan effects that create engaging presentations.",
+						"fontSize": 20,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 500,
+						"fontStyle": "normal",
+						"fontColor": "#047857",
+						"fontOpacity": 1,
+						"rotate": -2,
+						"animation": {
+							"type": "fade",
+							"duration": 1000,
+							"delay": 2400
+						}
+					},
+					{
+						"kind": "image",
+						"x": -850,
+						"y": 300,
+						"width": 450,
+						"height": 320,
+						"ratio": 0,
+						"url": "https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=1600",
+						"image": null,
+						"rotate": -8,
+						"animation": {
+							"type": "pan",
+							"duration": 900,
+							"delay": 2700,
+							"direction": "left"
+						}
+					},
+					{
+						"kind": "text",
+						"x": -300,
+						"y": 50,
+						"width": 480,
+						"height": 65,
+						"text": "Rich Text Support",
+						"fontSize": 38,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#7C2D12",
+						"fontOpacity": 1,
+						"rotate": 2,
+						"animation": {
+							"type": "raise",
+							"duration": 800,
+							"delay": 3000
+						}
+					},
+					{
+						"kind": "text",
+						"x": -300,
+						"y": 130,
+						"width": 480,
+						"height": 150,
+						"text": "Format your text with custom fonts, sizes, colors, and styles. Perfect for creating professional documents and presentations.",
+						"fontSize": 20,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 500,
+						"fontStyle": "italic",
+						"fontColor": "#92400E",
+						"fontOpacity": 1,
+						"rotate": 2,
+						"animation": {
+							"type": "wipe",
+							"duration": 1000,
+							"delay": 3300
+						}
+					},
+					{
+						"kind": "image",
+						"x": 300,
+						"y": 50,
+						"width": 480,
+						"height": 340,
+						"ratio": 0,
+						"url": "https://images.unsplash.com/photo-1519681393784-d120267933ba?w=1600",
+						"image": null,
+						"rotate": 10,
+						"animation": {
+							"type": "fade",
+							"duration": 1000,
+							"delay": 3600
+						}
+					},
+					{
+						"kind": "text",
+						"x": -500,
+						"y": 300,
+						"width": 550,
+						"height": 65,
+						"text": "High Performance",
+						"fontSize": 40,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#BE123C",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "pan",
+							"duration": 800,
+							"delay": 3900,
+							"direction": "right"
+						}
+					},
+					{
+						"kind": "text",
+						"x": -500,
+						"y": 380,
+						"width": 550,
+						"height": 130,
+						"text": "Built with CanvasKit for blazing-fast rendering. Handle complex scenes with hundreds of elements without lag.",
+						"fontSize": 21,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 500,
+						"fontStyle": "normal",
+						"fontColor": "#DC2626",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "wipe",
+							"duration": 900,
+							"delay": 4200
+						}
+					},
+					{
+						"kind": "image",
+						"x": -750,
+						"y": 300,
+						"width": 450,
+						"height": 320,
+						"ratio": 0,
+						"url": "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1600",
+						"image": null,
+						"rotate": -6,
+						"animation": {
+							"type": "pan",
+							"duration": 900,
+							"delay": 4500,
+							"direction": "right"
+						}
+					},
+					{
+						"kind": "text",
+						"x": 200,
+						"y": 300,
+						"width": 550,
+						"height": 65,
+						"text": "Interactive Editing",
+						"fontSize": 40,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#0F766E",
+						"fontOpacity": 1,
+						"rotate": 3,
+						"animation": {
+							"type": "raise",
+							"duration": 800,
+							"delay": 4800
+						}
+					},
+					{
+						"kind": "text",
+						"x": 200,
+						"y": 380,
+						"width": 550,
+						"height": 130,
+						"text": "Select, drag, resize, and rotate elements with intuitive controls. Every interaction feels smooth and responsive.",
+						"fontSize": 21,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 500,
+						"fontStyle": "normal",
+						"fontColor": "#0D9488",
+						"fontOpacity": 1,
+						"rotate": 3,
+						"animation": {
+							"type": "fade",
+							"duration": 900,
+							"delay": 5100
+						}
+					},
+					{
+						"kind": "image",
+						"x": 400,
+						"y": 300,
+						"width": 480,
+						"height": 340,
+						"ratio": 0,
+						"url": "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=1600",
+						"image": null,
+						"rotate": 8,
+						"animation": {
+							"type": "fade",
+							"duration": 1000,
+							"delay": 5400
+						}
+					},
+					{
+						"kind": "text",
+						"x": -350,
+						"y": 460,
+						"width": 900,
+						"height": 80,
+						"text": "Start Creating Today",
+						"fontSize": 56,
+						"fontFamily": "Noto Sans",
+						"fontWeight": 700,
+						"fontStyle": "normal",
+						"fontColor": "#111827",
+						"fontOpacity": 1,
+						"rotate": 0,
+						"animation": {
+							"type": "raise",
+							"duration": 1000,
+							"delay": 5700
+						}
+					}
+				]
+			}
+		]
+}

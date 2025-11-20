@@ -1,14 +1,28 @@
 from __future__ import annotations
 
-from typing import Set, Dict
-from uuid import uuid4
-import asyncio
+import json
+import struct
+from contextlib import asynccontextmanager
+from typing import Any, List
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.database import SessionLocal
+from backend.seed import seed_data
+from backend.websocket_manager import ConnectionManager
+from backend.crud import get_document_data, get_audio_data
 
-app = FastAPI(title="Image Editor Backend")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize and seed database on startup
+    print("Seeding database...")
+    seed_data()
+    yield
+
+
+app = FastAPI(title="Image Editor Backend", lifespan=lifespan)
 
 # Allow your Svelte dev server to talk to the API in development.
 # Adjust origins as needed for production.
@@ -26,66 +40,6 @@ app.add_middleware(
 )
 
 
-class ConnectionManager:
-    """Simple in‑memory WebSocket connection manager."""
-
-    def __init__(self) -> None:
-        self.active_connections: Set[WebSocket] = set()
-        # Store client ids as opaque strings (e.g., UUIDs), not ints.
-        self._client_ids: Dict[WebSocket, str] = {}
-
-    async def connect(self, websocket: WebSocket) -> None:
-        await websocket.accept()
-        self.active_connections.add(websocket)
-        # Assign a UUID-based client id (string, not int).
-        self._client_ids[websocket] = str(uuid4())
-
-    def disconnect(self, websocket: WebSocket) -> None:
-        self.active_connections.discard(websocket)
-        self._client_ids.pop(websocket, None)
-
-    def get_client_id(self, websocket: WebSocket) -> str | None:
-        return self._client_ids.get(websocket)
-
-    async def send_personal_message(self, message: str, websocket: WebSocket) -> None:
-        await websocket.send_text(message)
-
-    async def broadcast(self, message: str) -> None:
-        """Broadcast a message to all connected clients.
-
-        Dead connections are removed so future sends stay stable.
-        """
-        to_remove: list[WebSocket] = []
-
-        for connection in self.active_connections:
-            try:
-                await connection.send_text(message)
-            except Exception:
-                # Connection is likely dead; mark it for removal.
-                to_remove.append(connection)
-
-        for connection in to_remove:
-            self.disconnect(connection)
-
-    async def send_periodic_test_message(
-        self, websocket: WebSocket, interval_seconds: float = 3.0
-    ) -> None:
-        """Send a periodic test message to a single client.
-
-        Runs until sending fails (e.g. client disconnects).
-        """
-        try:
-            while True:
-                await asyncio.sleep(interval_seconds)
-                client_id = self.get_client_id(websocket)
-                await self.send_personal_message(
-                    f"server[{client_id}]: periodic test message", websocket
-                )
-        except Exception:
-            # Let the main websocket handler clean up the connection.
-            return
-
-
 manager = ConnectionManager()
 
 
@@ -94,40 +48,117 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+async def send_binary_response(websocket: WebSocket, json_data: Any, blobs: List[bytes]) -> None:
+    """
+    Sends a binary frame:
+    [4 bytes: JSON Length]
+    [JSON Payload]
+    [4 bytes: Blob 1 Length] [Blob 1]
+    ...
+    """
+    json_bytes = json.dumps(json_data).encode("utf-8")
+    json_len = len(json_bytes)
+    
+    payload = bytearray()
+    payload.extend(struct.pack(">I", json_len))
+    payload.extend(json_bytes)
+    
+    for blob in blobs:
+        blob_len = len(blob)
+        payload.extend(struct.pack(">I", blob_len))
+        payload.extend(blob)
+        
+    await manager.send_bytes(bytes(payload), websocket)
+
+
+async def send_binary_json(websocket: WebSocket, json_data: Any) -> None:
+    """Helper to send simple JSON data wrapped in the binary protocol (0 blobs)."""
+    await send_binary_response(websocket, json_data, [])
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
-    """Basic echo/broadcast WebSocket endpoint.
-
-    - Receives text messages from one client.
-    - If the message is 'ping', replies with 'pong' (for heartbeat).
-    - Otherwise, broadcasts the message to all connected clients.
+    """
+    Handles WebSocket connections and events.
+    ALL communications are now binary frames.
+    
+    Incoming Format:
+    - Just UTF-8 JSON bytes.
+    
+    Outgoing Format (Binary Protocol):
+    [4 bytes BigEndian: JSON Length]
+    [JSON Payload (UTF-8)]
+    [Optional: 4 bytes Blob 1 Length + Blob 1 Data...]
     """
     await manager.connect(websocket)
 
-    # Background task: send a periodic test message to this client every 10 seconds.
-    periodic_task = asyncio.create_task(manager.send_periodic_test_message(websocket))
-
     try:
         while True:
-            data = await websocket.receive_text()
+            # Receive bytes instead of text
+            data_bytes = await websocket.receive_bytes()
 
-            # Heartbeat support from clients
-            if data == "ping":
-                await manager.send_personal_message("pong", websocket)
+            # Parse incoming bytes as UTF-8 JSON
+            try:
+                data_text = data_bytes.decode("utf-8")
+                message = json.loads(data_text)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                await send_binary_json(websocket, {
+                    "event": "error",
+                    "message": "Invalid JSON bytes"
+                })
                 continue
 
-            # Echo back to sender and broadcast to everyone
-            await manager.send_personal_message(f"you said: {data}", websocket)
-            await manager.broadcast(f"broadcast: {data}")
+            # Handle "ping" (string) or {"event": "ping"}
+            if message == "ping" or (isinstance(message, dict) and message.get("event") == "ping"):
+                 await send_binary_json(websocket, {"event": "pong"})
+                 continue
+
+            event_type = message.get("event") if isinstance(message, dict) else None
+
+            if event_type == "load_document":
+                doc_id = message.get("document_id")
+                if doc_id:
+                    db = SessionLocal()
+                    try:
+                        doc_structure, image_blobs = get_document_data(db, doc_id)
+                        
+                        if doc_structure:
+                            response_event = {
+                                "event": "document_loaded_binary",
+                                "data": doc_structure
+                            }
+                            await send_binary_response(websocket, response_event, image_blobs)
+                        else:
+                            await send_binary_json(websocket, {
+                                "event": "error",
+                                "message": "Document not found"
+                            })
+                    finally:
+                        db.close()
+            
+            elif event_type == "load_audio":
+                db = SessionLocal()
+                try:
+                    audio_data = get_audio_data(db)
+                    await send_binary_json(websocket, {
+                        "event": "audio_loaded",
+                        "data": audio_data
+                    })
+                finally:
+                    db.close()
+            
+            else:
+                # Unknown event or plain message structure
+                # Echo back as binary
+                await send_binary_json(websocket, {
+                    "event": "echo",
+                    "data": message
+                })
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception:
-        # Any unexpected error -> clean up the connection
         manager.disconnect(websocket)
-    finally:
-        # Stop the periodic sender for this websocket.
-        periodic_task.cancel()
 
 
 # If you want to run this directly: `python backend/main.py`
@@ -135,5 +166,3 @@ if __name__ == "__main__":  # pragma: no cover
     import uvicorn
 
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-
-
