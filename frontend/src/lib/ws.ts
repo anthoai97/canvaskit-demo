@@ -6,6 +6,7 @@ export interface BinaryMessage {
 }
 
 type Listener = (message: BinaryMessage) => void;
+type SendListener = (data: any) => void;
 
 export interface WebSocketOptions {
 	url?: string; // defaults to ws://localhost:8000/ws
@@ -15,16 +16,20 @@ export interface WebSocketOptions {
 	reconnectDelayMs?: number;
 	/** Maximum delay (ms) between reconnect attempts. */
 	maxReconnectDelayMs?: number;
+	/** Callback when connection is established */
+	onConnected?: () => void;
 }
 
 export class CanvasKitWebSocket {
 	private url: string;
 	private ws: WebSocket | null = null;
 	private listeners: Set<Listener> = new Set();
+	private sendListeners: Set<SendListener> = new Set();
 	private heartbeatIntervalId: number | null = null;
 	private reconnectTimeoutId: number | null = null;
 	private reconnectAttempts = 0;
 	private manualClose = false;
+	private onConnected?: () => void;
 
 	private readonly heartbeatIntervalMs: number;
 	private readonly reconnectDelayMs: number;
@@ -35,13 +40,15 @@ export class CanvasKitWebSocket {
 			url,
 			heartbeatIntervalMs = 15_000,
 			reconnectDelayMs = 1_000,
-			maxReconnectDelayMs = 30_000
+			maxReconnectDelayMs = 30_000,
+			onConnected
 		} = options;
 
 		this.url = url ?? this.defaultUrl();
 		this.heartbeatIntervalMs = heartbeatIntervalMs;
 		this.reconnectDelayMs = reconnectDelayMs;
 		this.maxReconnectDelayMs = maxReconnectDelayMs;
+		this.onConnected = onConnected;
 
 		this.connect();
 	}
@@ -61,6 +68,7 @@ export class CanvasKitWebSocket {
 		this.ws.onopen = () => {
 			this.reconnectAttempts = 0;
 			this.startHeartbeat();
+			this.onConnected?.();
 		};
 
 		this.ws.onmessage = (event) => {
@@ -173,6 +181,9 @@ export class CanvasKitWebSocket {
 	 * Sends data as JSON UTF-8 bytes.
 	 */
 	send(data: any) {
+		// Notify listeners before sending (for debugging, even if not connected)
+		this.sendListeners.forEach((listener) => listener(data));
+
 		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
 			const jsonStr = JSON.stringify(data);
 			const encoder = new TextEncoder();
@@ -187,6 +198,14 @@ export class CanvasKitWebSocket {
 
 	removeMessageListener(listener: Listener) {
 		this.listeners.delete(listener);
+	}
+
+	addSendListener(listener: SendListener) {
+		this.sendListeners.add(listener);
+	}
+
+	removeSendListener(listener: SendListener) {
+		this.sendListeners.delete(listener);
 	}
 
 	close() {

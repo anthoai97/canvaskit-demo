@@ -5,11 +5,17 @@ import type { ImageShape } from '$lib/types/shape';
  * Loads an image from a URL using CanvasKit
  * @param ck - CanvasKit instance
  * @param url - Image URL to load
+ * @param blob - Optional Blob to load directly instead of fetching URL
  * @returns Promise that resolves to a CanvasKit Image
  */
-export const loadSkImage = async (ck: CanvasKit, url: string): Promise<Image | null> => {
+export const loadSkImage = async (ck: CanvasKit, url: string, blob?: Blob): Promise<Image | null> => {
 	try {
-		const buf = await fetch(url).then((r) => r.arrayBuffer());
+		let buf: ArrayBuffer;
+		if (blob) {
+			buf = await blob.arrayBuffer();
+		} else {
+			buf = await fetch(url).then((r) => r.arrayBuffer());
+		}
 		const img = ck.MakeImageFromEncoded(new Uint8Array(buf));
 		return img;
 	} catch (error) {
@@ -35,6 +41,7 @@ export async function loadImageBinary<
 		ratio: number;
 		rotate: number | null;
 		kind?: string;
+		blob?: Blob;
 	}
 >(
 	ck: CanvasKit,
@@ -46,7 +53,7 @@ export async function loadImageBinary<
 			result.push(shape);
 			continue;
 		}
-		const image = await loadSkImage(ck, shape.url);
+		const image = await loadSkImage(ck, shape.url, shape.blob);
 		const ratio = image ? image.width() / image.height() : 0;
 
 		// Preserve the logical width/height from the data file so layout size

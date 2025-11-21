@@ -1,22 +1,19 @@
 <script lang="ts">
-	import {
-		getPageMaxAnimationDuration,
-		startShapeAnimations
-	} from '$lib/canvakit/animation';
+	import { getPageMaxAnimationDuration, startShapeAnimations } from '$lib/canvakit/animation';
 	import { createWebGLSurface, initCanvasKit } from '$lib/canvakit/canvas';
 	import { createPaints } from '$lib/canvakit/drawing';
 	import { loadFonts, preloadFonts } from '$lib/canvakit/font';
 	import { DEFAULT_CAMERA_ZOOM, INVALID_INDEX } from '$lib/contants/const';
-	import { CanvasKitWebSocket } from '$lib/ws';
+	import { CanvasKitWebSocket, type BinaryMessage } from '$lib/ws';
 	import { resetSelectedShape, type ResizeState, type RotationState } from '$lib/types/editor';
 	import { resetHoverState } from '$lib/utils/hover-state';
 	import type { EditorDocument, EditorPage } from '$lib/types/page';
 	import type { Shape } from '$lib/types/shape';
 	import type { Canvas, CanvasKit, Paint, Surface, FontMgr } from 'canvaskit-wasm';
 	import { onDestroy, onMount, tick } from 'svelte';
-	import { loadDocument, createDefaultDocument, loadPageImages } from '$lib/editor/document-loader';
+	import { createDefaultDocument, loadPageImages } from '$lib/editor/document-loader';
 	import { drawScene as renderScene, type RenderContext } from '$lib/editor/scene-renderer';
-import { drawLoadingScreen, type LoadingRenderContext } from '$lib/editor/loading-renderer';
+	import { drawLoadingScreen, type LoadingRenderContext } from '$lib/editor/loading-renderer';
 	import {
 		handleWheel,
 		handleMouseMove,
@@ -35,9 +32,10 @@ import { drawLoadingScreen, type LoadingRenderContext } from '$lib/editor/loadin
 		scheduleBackgroundThumbnailProcessing,
 		getThumbnailCaptureDelay
 	} from '$lib/editor/thumbnail-manager';
-import { VideoRecorder } from '$lib/utils/video-recorder';
+	import { VideoRecorder } from '$lib/utils/video-recorder';
+	import { debounce } from '$lib/utils/index';
 
-type ExportResolution = '720p' | '1080p' | '2k';
+	type ExportResolution = '720p' | '1080p' | '2k';
 
 	// ==================== DOM References ====================
 	let editor: HTMLDivElement;
@@ -67,19 +65,6 @@ type ExportResolution = '720p' | '1080p' | '2k';
 			case '1080p':
 			default:
 				return { width: 1920, height: 1080 };
-		}
-	};
-
-	const loadAudioOptions = async () => {
-		try {
-			const response = await fetch('/test_data/audio.json');
-			const data = await response.json();
-			audioOptions = data.map((item: { url: string }, index: number) => ({
-				url: item.url,
-				name: `Audio ${index + 1} (${item.url.split('/').pop()})`
-			}));
-		} catch (error) {
-			console.error('Failed to load audio options:', error);
 		}
 	};
 
@@ -147,7 +132,7 @@ type ExportResolution = '720p' | '1080p' | '2k';
 			const { width, height } = getExportSize(exportResolution);
 			recordingCanvas.width = width;
 			recordingCanvas.height = height;
-			
+
 			// Initialize recording surface
 			recordingSurface = createWebGLSurface(ck, recordingCanvas);
 			if (!recordingSurface) {
@@ -159,7 +144,7 @@ type ExportResolution = '720p' | '1080p' | '2k';
 			// Prepare & start recorder
 			recordingTimeSec = 0;
 			recordingLastTimestamp = null;
-			
+
 			// Snapshot document for independent recording
 			recordingDocument = {
 				...document!,
@@ -254,6 +239,27 @@ type ExportResolution = '720p' | '1080p' | '2k';
 	// ==================== WebSocket State ====================
 	let ws: CanvasKitWebSocket | null = null;
 	let wsMessages: string[] = [];
+	let documentResolve: (doc: EditorDocument) => void;
+	const documentPromise = new Promise<EditorDocument>((resolve) => {
+		documentResolve = resolve;
+	});
+
+	// Debounced sender: wait 50ms before sending.
+	// If another update comes for the same shape (or any shape in this simple impl), restart timer.
+	const debouncedSendShapeUpdate = debounce((shape: Shape) => {
+		if (!shape.id) return;
+		ws?.send({
+			event: 'shape_update',
+			data: {
+				id: shape.id,
+				x: shape.x,
+				y: shape.y,
+				width: shape.width,
+				height: shape.height,
+				rotate: shape.rotate
+			}
+		});
+	}, 150);
 
 	// ==================== Canvas Utilities ====================
 
@@ -301,7 +307,6 @@ type ExportResolution = '720p' | '1080p' | '2k';
 	const hasAnimations = (shapesToCheck: Shape[]): boolean => {
 		return shapesToCheck.some((shape) => shape.animation && shape.animation.type !== 'none');
 	};
-
 
 	// ==================== Page Management ====================
 
@@ -391,13 +396,92 @@ type ExportResolution = '720p' | '1080p' | '2k';
 	// ==================== WebSocket ====================
 
 	const setupWebSocket = () => {
-		ws = new CanvasKitWebSocket();
+		ws = new CanvasKitWebSocket({
+			onConnected: () => {
+				console.log('Connected to WS, requesting document and audio...');
+				ws?.send({ event: 'load_document', document_id: '1' });
+				ws?.send({ event: 'load_audio' });
+			}
+		});
 
-		ws.addMessageListener((message) => {
-			const displayMsg =
-				JSON.stringify(message.json) +
-				(message.blobs.length ? ` + ${message.blobs.length} blobs` : '');
-			wsMessages = [...wsMessages.slice(-19), displayMsg];
+		ws.addMessageListener((message: BinaryMessage) => {
+			// Filter out ping/pong events
+			if (
+				message.json === 'pong' ||
+				message.json?.event === 'pong' ||
+				message.json?.event === 'ping'
+			) {
+				return;
+			}
+
+			let displayMsg = JSON.stringify(message.json);
+			if (displayMsg.length > 100) {
+				displayMsg = displayMsg.substring(0, 100) + '...';
+			}
+			displayMsg += message.blobs.length ? ` + ${message.blobs.length} blobs` : '';
+
+			wsMessages = [...wsMessages.slice(-19), `[IN] ${displayMsg}`];
+
+			if (message.json.event === 'document_loaded_binary') {
+				const docData = message.json.data;
+				const blobs = message.blobs;
+
+				// Process blobs
+				if (docData.pages) {
+					docData.pages.forEach((page: any) => {
+						if (page.shapes) {
+							page.shapes.forEach((shape: any) => {
+								if (shape.kind === 'image' && typeof shape.binaryId === 'number') {
+									const blob = blobs[shape.binaryId];
+									if (blob) {
+										shape.url = URL.createObjectURL(blob);
+										shape.blob = blob;
+									}
+								}
+							});
+						}
+					});
+				}
+
+				documentResolve(docData);
+			} else if (message.json.event === 'audio_loaded') {
+				const data = message.json.data;
+				audioOptions = data.map((item: { url: string }, index: number) => ({
+					url: item.url,
+					name: `Audio ${index + 1} (${item.url.split('/').pop()})`
+				}));
+			} else if (message.json.event === 'shape_updated') {
+				const updatedShape = message.json.data;
+				if (updatedShape && updatedShape.id) {
+					const index = shapes.findIndex((s) => s.id === updatedShape.id);
+					if (index !== -1) {
+						// Update shape properties
+						const shape = shapes[index];
+						shape.x = updatedShape.x;
+						shape.y = updatedShape.y;
+						shape.width = updatedShape.width;
+						shape.height = updatedShape.height;
+						shape.rotate = updatedShape.rotate;
+
+						// Trigger reactivity
+						shapes = [...shapes];
+						scheduleDraw();
+					}
+				}
+			}
+		});
+
+		ws.addSendListener((data: any) => {
+			// Filter out ping events
+			if (data === 'ping' || data?.event === 'ping') {
+				return;
+			}
+
+			let displayMsg = JSON.stringify(data);
+			if (displayMsg.length > 100) {
+				displayMsg = displayMsg.substring(0, 100) + '...';
+			}
+			wsMessages = [...wsMessages.slice(-19), `[OUT] ${displayMsg}`];
 		});
 	};
 
@@ -424,7 +508,12 @@ type ExportResolution = '720p' | '1080p' | '2k';
 	 * Loads the initial document
 	 */
 	const initializeDocument = async () => {
-		document = await loadDocument('/test_data/beautiful_mock_data.json');
+		try {
+			document = await documentPromise;
+		} catch (error) {
+			console.error('Error loading document from WS:', error);
+			document = null;
+		}
 
 		if (!document || document.pages.length === 0) {
 			console.error('Document data not loaded');
@@ -452,8 +541,6 @@ type ExportResolution = '720p' | '1080p' | '2k';
 		updateCanvasDimensions();
 		await tick();
 
-		await loadAudioOptions();
-
 		cameraState.panX = centerX;
 		cameraState.panY = centerY;
 
@@ -462,6 +549,9 @@ type ExportResolution = '720p' | '1080p' | '2k';
 		startLoadingAnimation();
 
 		await initializeFonts();
+
+		setupWebSocket();
+
 		await initializeDocument();
 		isLoading = false;
 
@@ -481,7 +571,6 @@ type ExportResolution = '720p' | '1080p' | '2k';
 
 		cleanupEvents = bindEvents();
 		drawScene();
-		setupWebSocket();
 	};
 
 	onMount(initializeEditor);
@@ -544,15 +633,6 @@ type ExportResolution = '720p' | '1080p' | '2k';
 	};
 
 	/**
-	 * Clears hover state
-	 */
-	const clearHoverState = () => {
-		resetHoverState(hoverState);
-		updateCursorStyle();
-		scheduleDraw();
-	};
-
-	/**
 	 * Updates cursor style based on current state
 	 */
 	const updateCursorStyle = () => {
@@ -592,6 +672,7 @@ type ExportResolution = '720p' | '1080p' | '2k';
 				draggedShape.y += deltaY;
 				// Trigger reactivity by reassigning shapes array
 				shapes = [...shapes];
+				debouncedSendShapeUpdate(draggedShape);
 				if (updateShapesHash()) {
 					scheduleThumbnailCapture();
 				}
@@ -604,6 +685,7 @@ type ExportResolution = '720p' | '1080p' | '2k';
 				shape.height = height;
 				// Trigger reactivity by reassigning shapes array
 				shapes = [...shapes];
+				debouncedSendShapeUpdate(shape);
 				if (updateShapesHash()) {
 					scheduleThumbnailCapture();
 				}
@@ -613,6 +695,7 @@ type ExportResolution = '720p' | '1080p' | '2k';
 				shape.rotate = rotation;
 				// Trigger reactivity by reassigning shapes array
 				shapes = [...shapes];
+				debouncedSendShapeUpdate(shape);
 				if (updateShapesHash()) {
 					scheduleThumbnailCapture();
 				}
@@ -697,7 +780,6 @@ type ExportResolution = '720p' | '1080p' | '2k';
 
 		loadingAnimationId = requestAnimationFrame(animate);
 	};
-
 
 	const recordLoop = async () => {
 		if (!isRecording || !recordingDocument) return;
@@ -811,8 +893,10 @@ type ExportResolution = '720p' | '1080p' | '2k';
 		recordingLastTimestamp = now;
 		const frameTimestamp = recordingTimeSec;
 		recordingTimeSec += dtSec;
-		
-		recorder.captureFrame(frameTimestamp, dtSec).catch((err) => console.error('captureFrame error:', err));
+
+		recorder
+			.captureFrame(frameTimestamp, dtSec)
+			.catch((err) => console.error('captureFrame error:', err));
 
 		return isAnimating;
 	};
@@ -836,19 +920,18 @@ type ExportResolution = '720p' | '1080p' | '2k';
 		try {
 			const baseContext = createRenderContext();
 			const now = performance.now();
-			
+
 			// Always render the main scene
 			const isAnimating = renderScene(baseContext, scheduleDraw, now);
 			const animationsJustCompleted = wasAnimating && !isAnimating;
 
 			if (isAutoPlaying && animationsJustCompleted && document && document.pages.length > 0) {
 				const nextPageIndex = (currentPageIndex + 1) % document.pages.length;
-				
+
 				switchToPage(nextPageIndex);
 			}
 
 			wasAnimating = isAnimating;
-
 		} catch (error) {
 			console.error('Error rendering scene:', error);
 		}
@@ -1044,7 +1127,7 @@ type ExportResolution = '720p' | '1080p' | '2k';
 		</div>
 		<div class="mb-4">
 			<h3 class="block text-xs font-medium text-zinc-400 uppercase mb-2">Actions</h3>
-			
+
 			<div class="mb-2">
 				<label class="text-xs text-zinc-500 block mb-1">
 					Audio Track (Optional)
@@ -1066,7 +1149,8 @@ type ExportResolution = '720p' | '1080p' | '2k';
 				<div class="flex flex-wrap gap-1">
 					<button
 						type="button"
-						class="px-2 py-1 rounded text-[11px] border transition-colors {exportResolution === '720p'
+						class="px-2 py-1 rounded text-[11px] border transition-colors {exportResolution ===
+						'720p'
 							? 'bg-sky-600 text-white border-sky-500'
 							: 'bg-zinc-900 text-zinc-300 border-zinc-700 hover:border-sky-500'}"
 						on:click={() => (exportResolution = '720p')}
@@ -1075,7 +1159,8 @@ type ExportResolution = '720p' | '1080p' | '2k';
 					</button>
 					<button
 						type="button"
-						class="px-2 py-1 rounded text-[11px] border transition-colors {exportResolution === '1080p'
+						class="px-2 py-1 rounded text-[11px] border transition-colors {exportResolution ===
+						'1080p'
 							? 'bg-sky-600 text-white border-sky-500'
 							: 'bg-zinc-900 text-zinc-300 border-zinc-700 hover:border-sky-500'}"
 						on:click={() => (exportResolution = '1080p')}
@@ -1095,7 +1180,8 @@ type ExportResolution = '720p' | '1080p' | '2k';
 			</div>
 
 			<button
-				class="w-full px-3 py-2 rounded-md flex items-center justify-center gap-2 {isRecording || isExporting
+				class="w-full px-3 py-2 rounded-md flex items-center justify-center gap-2 {isRecording ||
+				isExporting
 					? 'bg-zinc-600 cursor-not-allowed opacity-80'
 					: 'bg-sky-600 hover:bg-sky-500 active:bg-sky-700'} text-xs font-medium text-white transition-colors duration-150 shadow-sm hover:shadow"
 				on:click={toggleRecording}
@@ -1133,9 +1219,9 @@ type ExportResolution = '720p' | '1080p' | '2k';
 		>
 			<canvas id="canvas" bind:this={canvas}></canvas>
 		</div>
-		
+
 		<!-- Hidden Recording Canvas -->
-		<canvas 
+		<canvas
 			bind:this={recordingCanvas}
 			class="fixed top-0 left-0 opacity-0 pointer-events-none -z-50"
 		></canvas>

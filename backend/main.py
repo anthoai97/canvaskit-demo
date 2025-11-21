@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import sys
+import os
+
+# Add the project root to sys.path to allow imports from 'backend'
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import json
 import struct
 from contextlib import asynccontextmanager
@@ -11,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.database import SessionLocal
 from backend.seed import seed_data
 from backend.websocket_manager import ConnectionManager
-from backend.crud import get_document_data, get_audio_data
+from backend.crud import get_document_data, get_audio_data, update_shape
 
 
 @asynccontextmanager
@@ -22,7 +28,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Image Editor Backend", lifespan=lifespan)
+app = FastAPI(title="Editor Backend", lifespan=lifespan)
 
 # Allow your Svelte dev server to talk to the API in development.
 # Adjust origins as needed for production.
@@ -74,6 +80,17 @@ async def send_binary_response(websocket: WebSocket, json_data: Any, blobs: List
 async def send_binary_json(websocket: WebSocket, json_data: Any) -> None:
     """Helper to send simple JSON data wrapped in the binary protocol (0 blobs)."""
     await send_binary_response(websocket, json_data, [])
+
+
+async def broadcast_binary_json(json_data: Any, exclude: WebSocket = None) -> None:
+    """Broadcasts a binary JSON message to all connected clients, optionally excluding one."""
+    for connection in manager.active_connections:
+        if connection != exclude:
+            try:
+                await send_binary_json(connection, json_data)
+            except Exception:
+                # Connection might be closed or erroring
+                pass
 
 
 @app.websocket("/ws")
@@ -146,6 +163,22 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     })
                 finally:
                     db.close()
+            
+            elif event_type == "shape_update":
+                data = message.get("data")
+                shape_id = data.get("id")
+                if shape_id:
+                    db = SessionLocal()
+                    try:
+                        updated_shape = update_shape(db, shape_id, data)
+                        if updated_shape:
+                            # Broadcast to all OTHER clients
+                            await broadcast_binary_json({
+                                "event": "shape_updated",
+                                "data": updated_shape
+                            }, exclude=websocket)
+                    finally:
+                        db.close()
             
             else:
                 # Unknown event or plain message structure

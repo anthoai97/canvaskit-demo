@@ -13,39 +13,34 @@ export interface ShapeAnimation {
 }
 
 /**
- * Concrete shape type for bitmap images.
+ * Base interface for shared properties
  */
-export interface ImageShape {
-	kind: 'image';
+interface BaseShape {
+	id?: number;
 	x: number;
 	y: number;
 	width: number;
 	height: number;
-	url: string;
-	image: Image | null;
-	ratio: number;
 	rotate: number | null;
 	animation?: ShapeAnimation;
-	// Optional client-side state: when this image started animating (ms, performance.now()).
 	animationStart?: number | null;
 }
 
 /**
- * Concrete shape type for text content.
- *
- * Shares the same geometric properties as other shapes, but has its own
- * text styling configuration instead of image properties.
+ * Concrete shape type for bitmap images.
  */
-export interface TextShape {
+export interface ImageShape extends BaseShape {
+	kind: 'image';
+	url: string;
+	image: Image | null;
+	ratio: number;
+}
+
+/**
+ * Concrete shape type for text content.
+ */
+export interface TextShape extends BaseShape {
 	kind: 'text';
-
-	// Geometry
-	x: number;
-	y: number;
-	width: number;
-	height: number;
-	rotate: number | null;
-
 	// Text styling
 	text: string;
 	fontSize: number;
@@ -54,11 +49,6 @@ export interface TextShape {
 	fontStyle: string;
 	fontColor: string;
 	fontOpacity: number;
-
-	// Animation
-	animation?: ShapeAnimation;
-	// Optional client-side state: when this text started animating (ms, performance.now()).
-	animationStart?: number | null;
 }
 
 /**
