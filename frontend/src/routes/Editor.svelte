@@ -424,24 +424,9 @@
 
 			if (message.json.event === 'document_loaded_binary') {
 				const docData = message.json.data;
-				const blobs = message.blobs;
 
-				// Process blobs
-				if (docData.pages) {
-					docData.pages.forEach((page: any) => {
-						if (page.shapes) {
-							page.shapes.forEach((shape: any) => {
-								if (shape.kind === 'image' && typeof shape.binaryId === 'number') {
-									const blob = blobs[shape.binaryId];
-									if (blob) {
-										shape.url = URL.createObjectURL(blob);
-										shape.blob = blob;
-									}
-								}
-							});
-						}
-					});
-				}
+				// Images now use URLs directly - no blob processing needed
+				// The frontend will load images from URLs when needed
 
 				documentResolve(docData);
 			} else if (message.json.event === 'audio_loaded') {

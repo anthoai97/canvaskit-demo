@@ -1,20 +1,17 @@
-import httpx
 from sqlalchemy.orm import Session
 from backend.models import Document, Audio, Shape
 
 def get_document_data(db: Session, document_id: str) -> tuple[dict | None, list[bytes]]:
     """
     Fetches document data and returns a tuple:
-    1. The document structure (JSON-serializable dict), with images having an 'imageId' placeholder.
-    2. A list of raw image bytes, corresponding to the order of 'imageId's.
+    1. The document structure (JSON-serializable dict), with images having their URLs.
+    2. An empty list (no longer preloading images to binary).
     """
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         return None, []
     
     pages_data = []
-    image_blobs = []
-    image_count = 0
 
     for page in document.pages:
         shapes_data = []
@@ -32,20 +29,7 @@ def get_document_data(db: Session, document_id: str) -> tuple[dict | None, list[
             if shape.properties:
                 shape_dict.update(shape.properties)
             
-            # If it's an image, fetch the content and store as binary
-            if shape.kind == "image" and "url" in shape_dict:
-                try:
-                    # Fetch image synchronously here
-                    with httpx.Client() as client:
-                        response = client.get(shape_dict["url"])
-                        if response.status_code == 200:
-                            image_blobs.append(response.content)
-                            # Assign a temporary ID to link this shape to the binary blob
-                            # The frontend will receive the blobs in order or by ID
-                            shape_dict["binaryId"] = image_count
-                            image_count += 1
-                except Exception as e:
-                    print(f"Failed to fetch image for shape {shape.id}: {e}")
+            # Images now keep their URLs - frontend will load them directly
 
             shapes_data.append(shape_dict)
 
@@ -62,7 +46,7 @@ def get_document_data(db: Session, document_id: str) -> tuple[dict | None, list[
         "pages": pages_data
     }
     
-    return doc_structure, image_blobs
+    return doc_structure, []
 
 def get_audio_data(db: Session) -> list[dict]:
     audio_items = db.query(Audio).all()

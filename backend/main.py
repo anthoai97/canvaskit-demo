@@ -137,14 +137,14 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 if doc_id:
                     db = SessionLocal()
                     try:
-                        doc_structure, image_blobs = get_document_data(db, doc_id)
+                        doc_structure, _ = get_document_data(db, doc_id)
                         
                         if doc_structure:
                             response_event = {
                                 "event": "document_loaded_binary",
                                 "data": doc_structure
                             }
-                            await send_binary_response(websocket, response_event, image_blobs)
+                            await send_binary_json(websocket, response_event)
                         else:
                             await send_binary_json(websocket, {
                                 "event": "error",
