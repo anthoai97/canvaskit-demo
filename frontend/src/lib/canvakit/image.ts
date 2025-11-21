@@ -1,6 +1,8 @@
 import type { Canvas, CanvasKit, Image, Paint } from 'canvaskit-wasm';
 import type { ImageShape } from '$lib/types/shape';
 
+const imageCache = new Map<string, Promise<ArrayBuffer>>();
+
 /**
  * Loads an image from a URL using CanvasKit
  * @param ck - CanvasKit instance
@@ -14,7 +16,13 @@ export const loadSkImage = async (ck: CanvasKit, url: string, blob?: Blob): Prom
 		if (blob) {
 			buf = await blob.arrayBuffer();
 		} else {
-			buf = await fetch(url).then((r) => r.arrayBuffer());
+			let promise = imageCache.get(url);
+			if (!promise) {
+				promise = fetch(url).then((r) => r.arrayBuffer());
+				imageCache.set(url, promise);
+				promise.catch(() => imageCache.delete(url));
+			}
+			buf = await promise;
 		}
 		const img = ck.MakeImageFromEncoded(new Uint8Array(buf));
 		return img;

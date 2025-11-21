@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.database import SessionLocal
 from backend.seed import seed_data
+from backend.models import Document
 from backend.websocket_manager import ConnectionManager
 from backend.crud import get_document_data, get_audio_data, update_shape
 
@@ -25,6 +26,15 @@ async def lifespan(app: FastAPI):
     # Initialize and seed database on startup
     print("Seeding database...")
     seed_data()
+    
+    # Verify loaded data
+    db = SessionLocal()
+    try:
+        docs = db.query(Document).all()
+        print(f"Available Documents after seed: {[doc.id for doc in docs]}")
+    finally:
+        db.close()
+        
     yield
 
 
