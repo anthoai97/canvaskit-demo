@@ -7,7 +7,7 @@
 	import { createPaints } from '$lib/canvakit/drawing';
 	import { loadFonts, preloadFonts } from '$lib/canvakit/font';
 	import { DEFAULT_CAMERA_ZOOM, INVALID_INDEX } from '$lib/contants/const';
-	import { StableWebSocket } from '$lib/ws';
+	import { CanvasKitWebSocket } from '$lib/ws';
 	import { resetSelectedShape, type ResizeState, type RotationState } from '$lib/types/editor';
 	import { resetHoverState } from '$lib/utils/hover-state';
 	import type { EditorDocument, EditorPage } from '$lib/types/page';
@@ -252,7 +252,7 @@ type ExportResolution = '720p' | '1080p' | '2k';
 	let backgroundThumbnailsStarted = false;
 
 	// ==================== WebSocket State ====================
-	let ws: StableWebSocket | null = null;
+	let ws: CanvasKitWebSocket | null = null;
 	let wsMessages: string[] = [];
 
 	// ==================== Canvas Utilities ====================
@@ -391,14 +391,14 @@ type ExportResolution = '720p' | '1080p' | '2k';
 	// ==================== WebSocket ====================
 
 	const setupWebSocket = () => {
-		// TODO: Implement WebSocket
-		return;
+		ws = new CanvasKitWebSocket();
 
-		// ws = new StableWebSocket();
-
-		// ws.addMessageListener((event) => {
-		// 	wsMessages = [...wsMessages.slice(-19), event.data];
-		// });
+		ws.addMessageListener((message) => {
+			const displayMsg =
+				JSON.stringify(message.json) +
+				(message.blobs.length ? ` + ${message.blobs.length} blobs` : '');
+			wsMessages = [...wsMessages.slice(-19), displayMsg];
+		});
 	};
 
 	// ==================== Initialization ====================
@@ -488,7 +488,7 @@ type ExportResolution = '720p' | '1080p' | '2k';
 
 	onDestroy(() => {
 		cleanupEvents?.();
-		// ws?.close();
+		ws?.close();
 		if (animationFrameId !== null) {
 			cancelAnimationFrame(animationFrameId);
 		}

@@ -1,6 +1,11 @@
-// Simple WebSocket helper with auto‑reconnect and heartbeat support.
+// Simple WebSocket helper with auto-reconnect and heartbeat support.
 
-type Listener = (message: MessageEvent<string>) => void;
+export interface BinaryMessage {
+	json: any;
+	blobs: Blob[];
+}
+
+type Listener = (message: BinaryMessage) => void;
 
 export interface WebSocketOptions {
 	url?: string; // defaults to ws://localhost:8000/ws
@@ -12,7 +17,7 @@ export interface WebSocketOptions {
 	maxReconnectDelayMs?: number;
 }
 
-export class StableWebSocket {
+export class CanvasKitWebSocket {
 	private url: string;
 	private ws: WebSocket | null = null;
 	private listeners: Set<Listener> = new Set();
@@ -50,6 +55,7 @@ export class StableWebSocket {
 
 	private connect() {
 		this.ws = new WebSocket(this.url);
+		this.ws.binaryType = 'arraybuffer';
 		this.manualClose = false;
 
 		this.ws.onopen = () => {
@@ -58,9 +64,12 @@ export class StableWebSocket {
 		};
 
 		this.ws.onmessage = (event) => {
-			// Ignore heartbeat replies if you don't care about them in the UI
-			if (typeof event.data === 'string' && event.data === 'pong') return;
-			this.listeners.forEach((listener) => listener(event as MessageEvent<string>));
+			if (event.data instanceof ArrayBuffer) {
+				this.handleBinaryMessage(event.data);
+			} else {
+				// In case the server sends text frames unexpectedly
+				console.warn('Received text frame, expected binary', event.data);
+			}
 		};
 
 		this.ws.onerror = () => {
@@ -76,12 +85,65 @@ export class StableWebSocket {
 		};
 	}
 
+	private handleBinaryMessage(buffer: ArrayBuffer) {
+		const view = new DataView(buffer);
+		let offset = 0;
+
+		// 1. Read JSON Length (4 bytes)
+		if (view.byteLength < 4) return;
+		const jsonLen = view.getUint32(offset, false); // big-endian
+		offset += 4;
+
+		// 2. Read JSON Payload
+		if (view.byteLength < offset + jsonLen) return;
+		const jsonBytes = new Uint8Array(buffer, offset, jsonLen);
+		offset += jsonLen;
+
+		const textDecoder = new TextDecoder('utf-8');
+		const jsonStr = textDecoder.decode(jsonBytes);
+
+		let jsonData: any;
+		try {
+			jsonData = JSON.parse(jsonStr);
+		} catch (e) {
+			console.error('Failed to parse JSON from binary message', e);
+			return;
+		}
+
+		// Handle heartbeat pong internally
+		if (jsonData && (jsonData === 'pong' || jsonData.event === 'pong')) {
+			return;
+		}
+
+		// 3. Read Blobs
+		const blobs: Blob[] = [];
+		while (offset < view.byteLength) {
+			// Read Blob Length (4 bytes)
+			if (offset + 4 > view.byteLength) break;
+			const blobLen = view.getUint32(offset, false);
+			offset += 4;
+
+			// Read Blob Data
+			if (offset + blobLen > view.byteLength) break;
+			const blobData = buffer.slice(offset, offset + blobLen);
+			blobs.push(new Blob([blobData]));
+			offset += blobLen;
+		}
+
+		const message: BinaryMessage = {
+			json: jsonData,
+			blobs: blobs
+		};
+
+		this.listeners.forEach((listener) => listener(message));
+	}
+
 	private startHeartbeat() {
 		if (this.heartbeatIntervalMs <= 0) return;
 		this.stopHeartbeat();
 
 		this.heartbeatIntervalId = window.setInterval(() => {
-			this.send('ping');
+			this.send({ event: 'ping' });
 		}, this.heartbeatIntervalMs);
 	}
 
@@ -107,9 +169,15 @@ export class StableWebSocket {
 		}, backoff);
 	}
 
-	send(message: string) {
+	/**
+	 * Sends data as JSON UTF-8 bytes.
+	 */
+	send(data: any) {
 		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-			this.ws.send(message);
+			const jsonStr = JSON.stringify(data);
+			const encoder = new TextEncoder();
+			const bytes = encoder.encode(jsonStr);
+			this.ws.send(bytes);
 		}
 	}
 
@@ -135,5 +203,3 @@ export class StableWebSocket {
 		}
 	}
 }
-
-
