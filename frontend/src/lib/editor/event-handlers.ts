@@ -37,6 +37,7 @@ export interface EventHandlerContext {
 	onResizingCornerChange: (corner: ResizeCorner | null) => void;
 	onResizeStartStateChange: (state: ResizeState | null) => void;
 	onRotationStartStateChange: (state: RotationState | null) => void;
+	onTransformEnd: () => void;
 }
 
 /**
@@ -271,7 +272,7 @@ export function handleMouseMove(
 	if (context.mouseState.isDragging) {
 		const canDragHovered = context.isValidShapeIndex(context.hoverState.shapeIndex);
 		const canDragSelected = context.isValidShapeIndex(context.selectedShape.index);
-		
+
 		if (canDragHovered || canDragSelected) {
 			handleShapeDragging(event, context);
 			return;
@@ -360,6 +361,14 @@ export function handleMouseUp(event: MouseEvent, context: EventHandlerContext): 
 	if (context.mouseState.isMouseDown) {
 		event.preventDefault();
 		context.mouseState.isMouseDown = false;
+
+		// Clear transformation state for any operation (drag, resize, or rotate)
+		if (context.mouseState.isDragging ||
+			context.resizingCorner !== null ||
+			context.rotationStartState !== null) {
+			context.onTransformEnd();
+		}
+
 		context.mouseState.isDragging = false;
 		context.onResizingCornerChange(null);
 		context.onResizeStartStateChange(null);

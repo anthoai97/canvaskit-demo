@@ -12,8 +12,10 @@ import {
 
 /**
  * Rotate circle offset from top of shape (in world coordinates)
+ * This must match the visual rendering in drawing.ts: y - (30 / zoom)
+ * At zoom 1.0, this is 30 pixels above the shape
  */
-const ROTATE_CIRCLE_OFFSET = 100;
+const ROTATE_CIRCLE_OFFSET = 30;
 
 export type ResizeCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
@@ -21,18 +23,22 @@ export type CardinalDirection = 'n' | 'e' | 's' | 'w';
 
 /**
  * Calculates the resize circle radius based on zoom
- * Ensures the radius scales with zoom but never goes below the minimum
+ * This returns the radius in WORLD SPACE for hit detection
+ * The visual circle on screen is always at least minCircleRadius pixels,
+ * but in world space at low zoom levels, this means a larger world-space radius
  */
 export const getResizeCircleRadius = (zoom: number): number => {
-	const scaledRadius = Math.max(
+	// The visual circle is max(circleRadius * zoom, minCircleRadius) pixels on screen
+	// To convert to world space, we divide by zoom
+	const visualRadius = Math.max(
 		DEFAULT_TOOL_BORDER.circleRadius * zoom,
-		DEFAULT_TOOL_BORDER.circleRadius
-	);
-	const minRadius = Math.max(
-		DEFAULT_TOOL_BORDER.minCircleRadius * zoom,
 		DEFAULT_TOOL_BORDER.minCircleRadius
 	);
-	return Math.max(scaledRadius, minRadius);
+
+	// Convert screen pixels to world space
+	const worldRadius = visualRadius / zoom;
+
+	return worldRadius;
 };
 
 /**
@@ -85,8 +91,18 @@ export const isHoveringRotateCircle = (
 	rotation: number | null = null
 ): boolean => {
 	const radius = getResizeCircleRadius(zoom);
-	const circlePos = getRotateCirclePosition(shape, rotation);
-	return isPointInCircle(point, circlePos.x, circlePos.y, radius);
+
+	// Get the circle position - MUST match drawing.ts line 133: y - (30 / zoom)
+	const centerX = shape.x + shape.width / 2;
+	const centerY = shape.y - (30 / zoom); // Match visual rendering exactly
+
+	// Transform point to local space (same as getHoveredResizeCorner does)
+	const transformedPoint = worldToLocalSpace(point, shape, rotation);
+
+	// Check in local space (same as getHoveredResizeCorner does)
+	const result = isPointInCircle(transformedPoint, centerX, centerY, radius);
+
+	return result;
 };
 
 /**

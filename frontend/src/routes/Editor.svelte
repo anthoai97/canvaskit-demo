@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { getPageMaxAnimationDuration, startShapeAnimations } from '$lib/canvakit/animation';
 	import { createWebGLSurface, initCanvasKit } from '$lib/canvakit/canvas';
-	import { createPaints } from '$lib/canvakit/drawing';
+	import { createPaints, drawSelectedBorder } from '$lib/canvakit/drawing';
 	import { loadFonts, preloadFonts } from '$lib/canvakit/font';
+	import { drawTextShape } from '$lib/canvakit/text';
+	import { getShapeCenter } from '$lib/utils/transform';
 	import { DEFAULT_CAMERA_ZOOM, INVALID_INDEX } from '$lib/contants/const';
 	import { CanvasKitWebSocket, type BinaryMessage } from '$lib/ws';
 	import { resetSelectedShape, type ResizeState, type RotationState } from '$lib/types/editor';
@@ -12,6 +14,9 @@
 	import type { Canvas, CanvasKit, Paint, Surface, FontMgr } from 'canvaskit-wasm';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { createDefaultDocument, loadPageImages } from '$lib/editor/document-loader';
+	import { loadSkImage } from '$lib/canvakit/image';
+	import { calculateViewport, isRectVisible } from '$lib/utils/viewport';
+	import type { ImageShape } from '$lib/types/shape';
 	import { drawScene as renderScene, type RenderContext } from '$lib/editor/scene-renderer';
 	import { drawLoadingScreen, type LoadingRenderContext } from '$lib/editor/loading-renderer';
 	import {
@@ -40,6 +45,7 @@
 	// ==================== DOM References ====================
 	let editor: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
+	let overlayCanvas: HTMLCanvasElement;
 
 	// ==================== Recording State ====================
 	let audioBlob: Blob | null = null;
@@ -175,6 +181,10 @@
 	let recordingSurface: Surface | null = null;
 	let recordingSkCanvas: Canvas | null = null;
 
+	// Overlay Canvas State
+	let overlaySurface: Surface | null = null;
+	let overlaySkCanvas: Canvas | null = null;
+
 	// ==================== Canvas Dimensions ====================
 	let canvasWidth: number;
 	let canvasHeight: number;
@@ -212,6 +222,10 @@
 		lastMouseY: 0
 	};
 
+	// ==================== Transformation State ====================
+	let transformingShapeIndex: number = INVALID_INDEX;
+	let transformationType: 'drag' | 'resize' | 'rotate' | null = null;
+
 	// ==================== Rendering Resources ====================
 	let paints: ReturnType<typeof createPaints> | null = null;
 	let lowOpacityPaint: Paint | null = null;
@@ -244,6 +258,41 @@
 		documentResolve = resolve;
 	});
 
+	// Lazy Loading State
+	const loadingImageUrls = new Set<string>();
+
+	const loadImageForShape = async (shape: ImageShape) => {
+		if (loadingImageUrls.has(shape.url)) return;
+		loadingImageUrls.add(shape.url);
+
+		const image = await loadSkImage(ck, shape.url);
+		loadingImageUrls.delete(shape.url);
+
+		if (image) {
+			shape.image = image;
+			shape.ratio = image.width() / image.height();
+			// Trigger update
+			shapes = [...shapes];
+			scheduleDraw();
+			scheduleThumbnailCapture();
+		}
+	};
+
+	const checkVisibleImages = () => {
+		if (!ck || !page || !shapes) return;
+
+		const viewport = calculateViewport(canvasWidth, canvasHeight, cameraState);
+
+		shapes.forEach((shape) => {
+			if (shape.kind === 'image' && !shape.image) {
+				// Check visibility
+				if (isRectVisible(shape.x, shape.y, shape.width, shape.height, viewport)) {
+					loadImageForShape(shape);
+				}
+			}
+		});
+	};
+
 	// Debounced sender: wait 50ms before sending.
 	// If another update comes for the same shape (or any shape in this simple impl), restart timer.
 	const debouncedSendShapeUpdate = debounce((shape: Shape) => {
@@ -263,6 +312,19 @@
 
 	// ==================== Document Actions ====================
 
+	const loadDocument = (id: string) => {
+		if (ws) {
+			// Update URL
+			const url = new URL(window.location.href);
+			url.searchParams.set('doc', id);
+			window.history.pushState({}, '', url);
+
+			isLoading = true;
+			startLoadingAnimation();
+			ws.send({ event: 'load_document', document_id: id });
+		}
+	};
+
 	// ==================== Canvas Utilities ====================
 
 	/**
@@ -273,14 +335,28 @@
 		canvasHeight = editor.clientHeight;
 		devicePixelRatioValue = window.devicePixelRatio || 1;
 
+		// Update main canvas
 		canvas.style.width = `${canvasWidth}px`;
 		canvas.style.height = `${canvasHeight}px`;
 		canvas.width = canvasWidth * devicePixelRatioValue;
 		canvas.height = canvasHeight * devicePixelRatioValue;
 
+		// Update overlay canvas
+		overlayCanvas.style.width = `${canvasWidth}px`;
+		overlayCanvas.style.height = `${canvasHeight}px`;
+		overlayCanvas.width = canvasWidth * devicePixelRatioValue;
+		overlayCanvas.height = canvasHeight * devicePixelRatioValue;
+
 		// Inform CanvasKit surface about the new backing-store size (if supported)
 		if (surface && typeof (surface as any).resize === 'function') {
 			(surface as any).resize(
+				canvasWidth * devicePixelRatioValue,
+				canvasHeight * devicePixelRatioValue
+			);
+		}
+
+		if (overlaySurface && typeof (overlaySurface as any).resize === 'function') {
+			(overlaySurface as any).resize(
 				canvasWidth * devicePixelRatioValue,
 				canvasHeight * devicePixelRatioValue
 			);
@@ -321,12 +397,16 @@
 		const newPage = document.pages[pageIndex];
 		if (!newPage) return;
 
-		// Load images for the new page if needed
-		const loadedShapes = await loadPageImages(ck, newPage);
-		newPage.shapes = loadedShapes;
+		// Initialize shapes with null images if needed (lazy loading)
+		newPage.shapes = newPage.shapes.map((s) => {
+			if (s.kind === 'image' && !s.image) {
+				return { ...s, image: null };
+			}
+			return s;
+		});
 
 		page = newPage;
-		shapes = loadedShapes;
+		shapes = newPage.shapes;
 
 		// Update paints and bounds for new page
 		paints = createPaints(ck, page);
@@ -345,8 +425,8 @@
 
 		// Handle animations for auto-play mode
 		if (isAutoPlaying) {
-			if (hasAnimations(loadedShapes)) {
-				startShapeAnimations(loadedShapes);
+			if (hasAnimations(newPage.shapes)) {
+				startShapeAnimations(newPage.shapes);
 				wasAnimating = true;
 			} else {
 				wasAnimating = false;
@@ -401,8 +481,9 @@
 		ws = new CanvasKitWebSocket({
 			onConnected: () => {
 				console.log('Connected to WS, requesting document and audio...');
-				// Force load doc1 for demo
-				const docId = '1';
+				// Get doc ID from URL or default to '1'
+				const urlParams = new URLSearchParams(window.location.search);
+				const docId = urlParams.get('doc') || '1';
 
 				ws?.send({ event: 'load_document', document_id: docId });
 				ws?.send({ event: 'load_audio' });
@@ -499,6 +580,10 @@
 		ck = await initCanvasKit();
 		surface = createWebGLSurface(ck, canvas);
 		skCanvas = surface?.getCanvas() ?? null;
+
+		// Initialize overlay canvas
+		overlaySurface = createWebGLSurface(ck, overlayCanvas);
+		overlaySkCanvas = overlaySurface?.getCanvas() ?? null;
 	};
 
 	/**
@@ -596,6 +681,11 @@
 			clearTimeout(thumbnailCaptureTimeout);
 		}
 
+		// Cleanup overlay
+		if (overlaySurface) {
+			overlaySurface.delete();
+		}
+
 		resetSelectedShape(selectedShape);
 		resetHoverState(hoverState);
 		resizingCorner = null;
@@ -637,6 +727,99 @@
 		scheduleDraw();
 	};
 
+	// ==================== Drag and Drop Helpers ====================
+
+	/**
+	 * Clears the overlay canvas
+	 */
+	const clearOverlay = () => {
+		if (!overlaySkCanvas || !ck) return;
+		overlaySkCanvas.clear(ck.TRANSPARENT);
+		overlaySurface?.flush();
+	};
+
+	/**
+	 * Renders the transforming shape on the overlay canvas
+	 */
+	const renderTransformingShapeOnOverlay = () => {
+		if (!overlaySkCanvas || !ck || !paints || !fontMgr) return;
+		if (transformingShapeIndex === INVALID_INDEX) return;
+
+		const shape = shapes[transformingShapeIndex];
+		if (!shape) return;
+
+		clearOverlay();
+
+		overlaySkCanvas.save();
+
+		// Apply camera transformations (same as main canvas)
+		overlaySkCanvas.scale(devicePixelRatioValue, devicePixelRatioValue);
+		overlaySkCanvas.translate(cameraState.panX, cameraState.panY);
+		overlaySkCanvas.scale(cameraState.zoom, cameraState.zoom);
+
+		// Apply shape rotation if needed
+		if (shape.rotate !== null && shape.rotate !== 0) {
+			const center = getShapeCenter(shape);
+			overlaySkCanvas.rotate(shape.rotate, center.x, center.y);
+		}
+
+		// Render based on shape type
+		if (shape.kind === 'image' && shape.image) {
+			const src = ck.XYWHRect(0, 0, shape.image.width(), shape.image.height());
+			const dst = ck.XYWHRect(shape.x, shape.y, shape.width, shape.height);
+
+			if (overlaySkCanvas.drawImageRectOptions) {
+				overlaySkCanvas.drawImageRectOptions(
+					shape.image,
+					src,
+					dst,
+					ck.FilterMode.Linear,
+					ck.MipmapMode.Linear,
+					paints.image
+				);
+			} else {
+				overlaySkCanvas.drawImageRect(shape.image, src, dst, paints.image);
+			}
+		} else if (shape.kind === 'text') {
+			drawTextShape(ck, overlaySkCanvas, fontMgr, shape);
+		}
+
+		overlaySkCanvas.restore();
+
+		// Draw selection borders for resize and rotate operations
+		// This shows the resize handles and rotate circle during transformation
+		if (transformationType === 'resize' || transformationType === 'rotate') {
+			overlaySkCanvas.save();
+
+			// Apply camera transformations
+			overlaySkCanvas.scale(devicePixelRatioValue, devicePixelRatioValue);
+			overlaySkCanvas.translate(cameraState.panX, cameraState.panY);
+			overlaySkCanvas.scale(cameraState.zoom, cameraState.zoom);
+
+			// Apply rotation if needed
+			if (shape.rotate !== null && shape.rotate !== 0) {
+				const center = getShapeCenter(shape);
+				overlaySkCanvas.rotate(shape.rotate, center.x, center.y);
+			}
+
+			// Draw selection border with handles
+			drawSelectedBorder(
+				overlaySkCanvas,
+				ck,
+				shape.x,
+				shape.y,
+				shape.width,
+				shape.height,
+				paints.tool,
+				cameraState.zoom
+			);
+
+			overlaySkCanvas.restore();
+		}
+
+		overlaySurface?.flush();
+	};
+
 	/**
 	 * Updates cursor style based on current state
 	 */
@@ -675,6 +858,14 @@
 				const draggedShape = shapes[shapeIndex];
 				draggedShape.x += deltaX;
 				draggedShape.y += deltaY;
+
+				// Set transformation state
+				transformingShapeIndex = shapeIndex;
+				transformationType = 'drag';
+
+				// Render on overlay
+				renderTransformingShapeOnOverlay();
+
 				// Trigger reactivity by reassigning shapes array
 				shapes = [...shapes];
 				debouncedSendShapeUpdate(draggedShape);
@@ -688,6 +879,14 @@
 				shape.y = y;
 				shape.width = width;
 				shape.height = height;
+
+				// Set transformation state
+				transformingShapeIndex = shapeIndex;
+				transformationType = 'resize';
+
+				// Render on overlay
+				renderTransformingShapeOnOverlay();
+
 				// Trigger reactivity by reassigning shapes array
 				shapes = [...shapes];
 				debouncedSendShapeUpdate(shape);
@@ -698,6 +897,14 @@
 			onShapeRotate: (shapeIndex: number, rotation: number) => {
 				const shape = shapes[shapeIndex];
 				shape.rotate = rotation;
+
+				// Set transformation state
+				transformingShapeIndex = shapeIndex;
+				transformationType = 'rotate';
+
+				// Render on overlay
+				renderTransformingShapeOnOverlay();
+
 				// Trigger reactivity by reassigning shapes array
 				shapes = [...shapes];
 				debouncedSendShapeUpdate(shape);
@@ -720,6 +927,14 @@
 			},
 			onRotationStartStateChange: (state: RotationState | null) => {
 				rotationStartState = state;
+			},
+			onTransformEnd: () => {
+				if (transformingShapeIndex !== INVALID_INDEX) {
+					transformingShapeIndex = INVALID_INDEX;
+					transformationType = null;
+					clearOverlay();
+					scheduleDraw(); // Redraw main canvas with all shapes
+				}
 			}
 		};
 	};
@@ -764,7 +979,8 @@
 			devicePixelRatio: devicePixelRatioValue,
 			surface,
 			isValidShapeIndex,
-			isPlaying: isAutoPlaying
+			isPlaying: isAutoPlaying,
+			transformingShapeIndex
 		};
 	};
 
@@ -933,6 +1149,9 @@
 		try {
 			const baseContext = createRenderContext();
 			const now = performance.now();
+
+			// Check for visible images to lazy load
+			checkVisibleImages();
 
 			// Always render the main scene
 			const isAnimating = renderScene(baseContext, scheduleDraw, now);
@@ -1142,6 +1361,24 @@
 			<h3 class="block text-xs font-medium text-zinc-400 uppercase mb-2">Actions</h3>
 
 			<div class="mb-2">
+				<div class="text-xs text-zinc-500 mb-1">Load Document</div>
+				<div class="flex gap-1">
+					<button
+						class="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] rounded border border-zinc-700 transition-colors"
+						on:click={() => loadDocument('1')}
+					>
+						Doc 1
+					</button>
+					<!-- <button
+						class="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] rounded border border-zinc-700 transition-colors"
+						on:click={() => loadDocument('2')}
+					>
+						Doc 2
+					</button> -->
+				</div>
+			</div>
+
+			<div class="mb-2">
 				<label class="text-xs text-zinc-500 block mb-1">
 					Audio Track (Optional)
 					<select
@@ -1226,11 +1463,17 @@
 	<div class="flex flex-col flex-1 overflow-hidden">
 		<!-- Main Canvas Area -->
 		<div
-			class="editor flex-1 overflow-hidden bg-zinc-100"
+			class="editor flex-1 overflow-hidden bg-zinc-100 relative"
 			style="cursor: {canvasCursor}"
 			bind:this={editor}
 		>
 			<canvas id="canvas" bind:this={canvas}></canvas>
+			<!-- Overlay canvas for drag and drop rendering -->
+			<canvas
+				bind:this={overlayCanvas}
+				class="absolute top-0 left-0 w-full h-full"
+				style="pointer-events: none;"
+			></canvas>
 		</div>
 
 		<!-- Hidden Recording Canvas -->

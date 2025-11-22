@@ -45,6 +45,8 @@ export const detectHover = (
 			rotation
 		);
 
+		console.log('[Hover Detection] Rotate circle check:', result.isHoveringRotateCircle);
+
 		// Only check resize corners if not hovering over rotate circle
 		if (!result.isHoveringRotateCircle) {
 			result.resizeCorner = getHoveredResizeCorner(

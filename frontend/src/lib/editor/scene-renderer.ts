@@ -36,6 +36,7 @@ export interface RenderContext {
 	isValidShapeIndex: (index: number) => boolean;
 	dirtyBounds?: Float32Array;
 	isPlaying?: boolean;
+	transformingShapeIndex?: number;
 }
 
 /**
@@ -77,7 +78,7 @@ export function drawAllShapes(
 	now: number,
 	onScheduleDraw: () => void
 ): boolean {
-	const { skCanvas, ck, paints, pageBounds, fontMgr, shapes } = context;
+	const { skCanvas, ck, paints, pageBounds, fontMgr, shapes, transformingShapeIndex } = context;
 
 	if (!skCanvas || !ck || !paints || !pageBounds || !fontMgr) return false;
 
@@ -88,6 +89,11 @@ export function drawAllShapes(
 	let hasAnimatingShapes = false;
 
 	for (let i = 0; i < shapes.length; i++) {
+		// Skip the transforming shape - it's rendered on the overlay
+		if (transformingShapeIndex !== undefined && i === transformingShapeIndex) {
+			continue;
+		}
+
 		const shape = shapes[i];
 
 		// Viewport culling - skip if shape is completely outside viewport
@@ -183,13 +189,15 @@ export function drawAllShapes(
  * Draws hover and selection borders on top of all shapes
  */
 export function drawShapeOverlays(context: RenderContext): void {
-	const { skCanvas, ck, paints, shapes, hoverState, selectedShape, cameraState, isValidShapeIndex } =
+	const { skCanvas, ck, paints, shapes, hoverState, selectedShape, cameraState, isValidShapeIndex, transformingShapeIndex } =
 		context;
 
 	if (!skCanvas || !ck || !paints) return;
 
-	// Hover border (when not selected)
-	if (isValidShapeIndex(hoverState.shapeIndex) && hoverState.shapeIndex !== selectedShape.index) {
+	// Hover border (when not selected and not being transformed)
+	if (isValidShapeIndex(hoverState.shapeIndex) &&
+		hoverState.shapeIndex !== selectedShape.index &&
+		hoverState.shapeIndex !== transformingShapeIndex) {
 		const hoveredShape = shapes[hoverState.shapeIndex];
 
 		skCanvas.save();
@@ -212,9 +220,11 @@ export function drawShapeOverlays(context: RenderContext): void {
 		skCanvas.restore();
 	}
 
-	// Selected border
+	// Selected border (skip if already rendered or being transformed)
 	const selectedIndex = selectedShape.index;
-	if (!isValidShapeIndex(selectedIndex) || selectedShape.rendered === true) return;
+	if (!isValidShapeIndex(selectedIndex) ||
+		selectedShape.rendered === true ||
+		selectedIndex === transformingShapeIndex) return;
 
 	const shape = shapes[selectedIndex];
 	let center: { x: number; y: number } | null = null;

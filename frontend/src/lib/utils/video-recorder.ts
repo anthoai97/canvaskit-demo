@@ -28,7 +28,6 @@ export class VideoRecorder {
             audioContext.close();
         }
 
-				console.log('audioBuffer', this.audioBuffer);
 
         // 2. Initialize MediaBunny Output
         this.target = new BufferTarget();
@@ -46,7 +45,7 @@ export class VideoRecorder {
             height: height,
             // keyFrameInterval: 2 // Optional, default is 5s
         };
-        
+
         this.videoSource = new CanvasSource(canvas, videoConfig);
         this.output.addVideoTrack(this.videoSource);
 
