@@ -109,7 +109,7 @@ export function drawAllShapes(
 			if (!context.isPlaying && (!shape.animation || shape.animation.type === 'none')) {
 				const src = ck.XYWHRect(0, 0, shape.image.width(), shape.image.height());
 				const dst = ck.XYWHRect(shape.x, shape.y, shape.width, shape.height);
-				
+
 				if (skCanvas.drawImageRectOptions) {
 					skCanvas.drawImageRectOptions(
 						shape.image,

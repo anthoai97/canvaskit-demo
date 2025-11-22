@@ -263,19 +263,6 @@
 
 	// ==================== Document Actions ====================
 
-	const loadDocument = (id: string) => {
-		if (ws) {
-			// Update URL
-			const url = new URL(window.location.href);
-			url.searchParams.set('doc', id);
-			window.history.pushState({}, '', url);
-
-			isLoading = true;
-			startLoadingAnimation();
-			ws.send({ event: 'load_document', document_id: id });
-		}
-	};
-
 	// ==================== Canvas Utilities ====================
 
 	/**
@@ -414,9 +401,8 @@
 		ws = new CanvasKitWebSocket({
 			onConnected: () => {
 				console.log('Connected to WS, requesting document and audio...');
-				// Get doc ID from URL or default to '1'
-				const urlParams = new URLSearchParams(window.location.search);
-				const docId = urlParams.get('doc') || '1';
+				// Force load doc1 for demo
+				const docId = '1';
 
 				ws?.send({ event: 'load_document', document_id: docId });
 				ws?.send({ event: 'load_audio' });
@@ -1154,24 +1140,6 @@
 		</div>
 		<div class="mb-4">
 			<h3 class="block text-xs font-medium text-zinc-400 uppercase mb-2">Actions</h3>
-
-			<div class="mb-2">
-				<div class="text-xs text-zinc-500 mb-1">Load Document</div>
-				<div class="flex gap-1">
-					<button
-						class="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] rounded border border-zinc-700 transition-colors"
-						on:click={() => loadDocument('1')}
-					>
-						Doc 1
-					</button>
-					<button
-						class="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] rounded border border-zinc-700 transition-colors"
-						on:click={() => loadDocument('2')}
-					>
-						Doc 2
-					</button>
-				</div>
-			</div>
 
 			<div class="mb-2">
 				<label class="text-xs text-zinc-500 block mb-1">

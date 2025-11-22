@@ -107,12 +107,12 @@ export const drawSelectedBorder = (
 	if (circleRadius < minCircleRadius) {
 		circleRadius = minCircleRadius;
 	}
-	
+
 	// White fill paint for circle background
 	const circleFillPaint = new ck.Paint();
 	circleFillPaint.setStyle(ck.PaintStyle.Fill);
 	circleFillPaint.setColor(rgbaToCanvasKitColor(ck, { r: 255, g: 255, b: 255, a: 1 }));
-	
+
 	// Colored stroke paint for circle border
 	const circleStrokePaint = new ck.Paint();
 	circleStrokePaint.setStyle(ck.PaintStyle.Stroke);
@@ -129,9 +129,9 @@ export const drawSelectedBorder = (
 
 	// Adjust rotation handle position inversely with zoom
 	const rotationCircle = {
-		x : x + width / 2,
-		y : y - (30 / zoom), // Move closer/further based on zoom to stay visually consistent
-		radius : circleRadius
+		x: x + width / 2,
+		y: y - (30 / zoom), // Move closer/further based on zoom to stay visually consistent
+		radius: circleRadius
 	};
 
 	canvas.drawCircle(rotationCircle.x, rotationCircle.y, rotationCircle.radius, circleFillPaint);
@@ -143,7 +143,7 @@ export const drawSelectedBorder = (
 		// Draw colored stroke on top
 		canvas.drawCircle(corner.x, corner.y, circleRadius, circleStrokePaint);
 	}
-	
+
 	// Cleanup
 	circleFillPaint.delete();
 	circleStrokePaint.delete();
