@@ -25,7 +25,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "fade",
                         "duration": 1000,
                         "delay": 3238
                     }
@@ -41,9 +41,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 426
+                        "delay": 426,
+                        "direction": "left"
                     }
                 },
                 {
@@ -57,9 +58,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 3372
+                        "delay": 3372,
+                        "direction": "right"
                     }
                 },
                 {
@@ -73,7 +75,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "raise",
                         "duration": 1000,
                         "delay": 3962
                     }
@@ -89,7 +91,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "fade",
                         "duration": 1000,
                         "delay": 1404
                     }
@@ -105,9 +107,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 1249
+                        "delay": 1249,
+                        "direction": "left"
                     }
                 },
                 {
@@ -121,9 +124,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 2026
+                        "delay": 2026,
+                        "direction": "right"
                     }
                 },
                 {
@@ -137,7 +141,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "raise",
                         "duration": 1000,
                         "delay": 2552
                     }
@@ -153,7 +157,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "fade",
                         "duration": 1000,
                         "delay": 2208
                     }
@@ -169,9 +173,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 2212
+                        "delay": 2212,
+                        "direction": "left"
                     }
                 },
                 {
@@ -185,9 +190,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 1238
+                        "delay": 1238,
+                        "direction": "right"
                     }
                 },
                 {
@@ -201,7 +207,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "raise",
                         "duration": 1000,
                         "delay": 211
                     }
@@ -217,7 +223,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "fade",
                         "duration": 1000,
                         "delay": 3618
                     }
@@ -233,9 +239,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 3036
+                        "delay": 3036,
+                        "direction": "left"
                     }
                 },
                 {
@@ -249,9 +256,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 1372
+                        "delay": 1372,
+                        "direction": "right"
                     }
                 },
                 {
@@ -265,7 +273,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "raise",
                         "duration": 1000,
                         "delay": 1973
                     }
@@ -281,7 +289,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "fade",
                         "duration": 1000,
                         "delay": 2805
                     }
@@ -297,9 +305,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 1283
+                        "delay": 1283,
+                        "direction": "left"
                     }
                 },
                 {
@@ -313,9 +322,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 3882
+                        "delay": 3882,
+                        "direction": "right"
                     }
                 },
                 {
@@ -329,7 +339,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "raise",
                         "duration": 1000,
                         "delay": 3610
                     }
@@ -345,7 +355,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "fade",
                         "duration": 1000,
                         "delay": 1272
                     }
@@ -361,9 +371,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 2487
+                        "delay": 2487,
+                        "direction": "left"
                     }
                 },
                 {
@@ -377,9 +388,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 194
+                        "delay": 194,
+                        "direction": "right"
                     }
                 },
                 {
@@ -393,7 +405,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "raise",
                         "duration": 1000,
                         "delay": 1742
                     }
@@ -409,7 +421,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "fade",
                         "duration": 1000,
                         "delay": 2143
                     }
@@ -425,9 +437,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 3349
+                        "delay": 3349,
+                        "direction": "left"
                     }
                 },
                 {
@@ -441,9 +454,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 755
+                        "delay": 755,
+                        "direction": "right"
                     }
                 },
                 {
@@ -457,7 +471,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "raise",
                         "duration": 1000,
                         "delay": 3200
                     }
@@ -473,7 +487,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "fade",
                         "duration": 1000,
                         "delay": 661
                     }
@@ -489,9 +503,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 1526
+                        "delay": 1526,
+                        "direction": "left"
                     }
                 },
                 {
@@ -505,9 +520,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 2249
+                        "delay": 2249,
+                        "direction": "right"
                     }
                 },
                 {
@@ -521,7 +537,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "raise",
                         "duration": 1000,
                         "delay": 1758
                     }
@@ -537,7 +553,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "fade",
                         "duration": 1000,
                         "delay": 2021
                     }
@@ -553,9 +569,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 3034
+                        "delay": 3034,
+                        "direction": "left"
                     }
                 },
                 {
@@ -569,9 +586,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 375
+                        "delay": 375,
+                        "direction": "right"
                     }
                 },
                 {
@@ -585,7 +603,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "raise",
                         "duration": 1000,
                         "delay": 1009
                     }
@@ -601,7 +619,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "fade",
                         "duration": 1000,
                         "delay": 3744
                     }
@@ -617,9 +635,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 1660
+                        "delay": 1660,
+                        "direction": "left"
                     }
                 },
                 {
@@ -633,9 +652,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 401
+                        "delay": 401,
+                        "direction": "right"
                     }
                 },
                 {
@@ -649,7 +669,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "raise",
                         "duration": 1000,
                         "delay": 3520
                     }
@@ -665,7 +685,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "fade",
                         "duration": 1000,
                         "delay": 1928
                     }
@@ -681,9 +701,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 908
+                        "delay": 908,
+                        "direction": "left"
                     }
                 },
                 {
@@ -697,9 +718,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 530
+                        "delay": 530,
+                        "direction": "right"
                     }
                 },
                 {
@@ -713,7 +735,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "raise",
                         "duration": 1000,
                         "delay": 2204
                     }
@@ -729,7 +751,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "fade",
                         "duration": 1000,
                         "delay": 1802
                     }
@@ -745,9 +767,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 1463
+                        "delay": 1463,
+                        "direction": "left"
                     }
                 },
                 {
@@ -761,9 +784,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 3878
+                        "delay": 3878,
+                        "direction": "right"
                     }
                 },
                 {
@@ -777,7 +801,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "raise",
                         "duration": 1000,
                         "delay": 3788
                     }
@@ -793,7 +817,7 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "fade",
                         "duration": 1000,
                         "delay": 1424
                     }
@@ -809,9 +833,10 @@
                     "image": null,
                     "rotate": 0,
                     "animation": {
-                        "type": "wipe",
+                        "type": "pan",
                         "duration": 1000,
-                        "delay": 3619
+                        "delay": 3619,
+                        "direction": "left"
                     }
                 }
             ]

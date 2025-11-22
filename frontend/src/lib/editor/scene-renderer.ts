@@ -6,6 +6,7 @@ import type { SelectedShape } from '$lib/types/editor';
 import type { HoverState } from '$lib/utils/hover-state';
 import { drawBackground } from '$lib/canvakit/drawing';
 import { drawAnimatedImageShape, drawAnimatedTextShape } from '$lib/canvakit/animation';
+import { drawTextShape } from '$lib/canvakit/text';
 import { getShapeCenter } from '$lib/utils/transform';
 import { calculateViewport, isRectVisible } from '$lib/utils/viewport';
 import { drawHoverBorder, drawSelectedBorder } from '$lib/canvakit/drawing';
@@ -33,6 +34,8 @@ export interface RenderContext {
 	devicePixelRatio: number;
 	surface: Surface | null;
 	isValidShapeIndex: (index: number) => boolean;
+	dirtyBounds?: Float32Array;
+	isPlaying?: boolean;
 }
 
 /**
@@ -102,9 +105,35 @@ export function drawAllShapes(
 				skCanvas.rotate(shape.rotate, center.x, center.y);
 			}
 
-			const isAnimating = drawAnimatedImageShape(ck, skCanvas, shape, paints.image, now);
-			if (isAnimating) {
-				hasAnimatingShapes = true;
+			// Optimization: Direct draw if not playing and no animation config
+			if (!context.isPlaying && (!shape.animation || shape.animation.type === 'none')) {
+				const src = ck.XYWHRect(0, 0, shape.image.width(), shape.image.height());
+				const dst = ck.XYWHRect(shape.x, shape.y, shape.width, shape.height);
+				
+				if (skCanvas.drawImageRectOptions) {
+					skCanvas.drawImageRectOptions(
+						shape.image,
+						src,
+						dst,
+						ck.FilterMode.Linear,
+						ck.MipmapMode.Linear,
+						paints.image
+					);
+				} else {
+					skCanvas.drawImageRect(shape.image, src, dst, paints.image);
+				}
+			} else {
+				const isAnimating = drawAnimatedImageShape(
+					ck,
+					skCanvas,
+					shape,
+					paints.image,
+					now,
+					!context.isPlaying
+				);
+				if (isAnimating) {
+					hasAnimatingShapes = true;
+				}
 			}
 
 			skCanvas.restore();
@@ -118,9 +147,21 @@ export function drawAllShapes(
 				skCanvas.rotate(shape.rotate, center.x, center.y);
 			}
 
-			const isAnimating = drawAnimatedTextShape(ck, skCanvas, fontMgr, shape, now);
-			if (isAnimating) {
-				hasAnimatingShapes = true;
+			// Optimization: Direct draw if not playing and no animation config
+			if (!context.isPlaying && (!shape.animation || shape.animation.type === 'none')) {
+				drawTextShape(ck, skCanvas, fontMgr, shape);
+			} else {
+				const isAnimating = drawAnimatedTextShape(
+					ck,
+					skCanvas,
+					fontMgr,
+					shape,
+					now,
+					!context.isPlaying
+				);
+				if (isAnimating) {
+					hasAnimatingShapes = true;
+				}
 			}
 
 			skCanvas.restore();
@@ -216,12 +257,16 @@ export function drawScene(context: RenderContext, onScheduleDraw: () => void, ti
 		canvasHeight,
 		devicePixelRatio,
 		cameraState,
-		surface
+		surface,
+		dirtyBounds
 	} = context;
 
 	if (!skCanvas || !ck || !paints || !lowOpacityPaint || !pageBounds || !fontMgr) return false;
 
-	skCanvas.clear(ck.Color(0, 0, 0, 1.0));
+	if (!dirtyBounds) {
+		skCanvas.clear(ck.Color(0, 0, 0, 1.0));
+	}
+
 	skCanvas.save();
 
 	// First scale by devicePixelRatio so all world/screen math can stay in CSS pixels
@@ -231,8 +276,30 @@ export function drawScene(context: RenderContext, onScheduleDraw: () => void, ti
 	skCanvas.translate(cameraState.panX, cameraState.panY);
 	skCanvas.scale(cameraState.zoom, cameraState.zoom);
 
+	if (dirtyBounds) {
+		skCanvas.clipRect(dirtyBounds, ck.ClipOp.Intersect, true);
+		// Clear dirty area to background color (black)
+		const clearPaint = new ck.Paint();
+		clearPaint.setColor(ck.Color(0, 0, 0, 1.0));
+		clearPaint.setStyle(ck.PaintStyle.Fill);
+		skCanvas.drawPaint(clearPaint);
+		clearPaint.delete();
+	}
+
 	// Calculate visible viewport for culling
-	const viewport = calculateViewport(canvasWidth, canvasHeight, cameraState);
+	let viewport = calculateViewport(canvasWidth, canvasHeight, cameraState);
+
+	if (dirtyBounds) {
+		// Intersect viewport with dirtyBounds for tighter culling
+		viewport = {
+			...viewport,
+			left: Math.max(viewport.left, dirtyBounds[0]),
+			top: Math.max(viewport.top, dirtyBounds[1]),
+			right: Math.min(viewport.right, dirtyBounds[2]),
+			bottom: Math.min(viewport.bottom, dirtyBounds[3])
+		};
+	}
+
 	const now = time ?? performance.now();
 
 	// Draw background

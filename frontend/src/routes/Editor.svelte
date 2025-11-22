@@ -452,6 +452,8 @@
 				// If editor is already initialized, reload the document
 				if (isInitialized) {
 					document = docData;
+					// Reset background thumbnails flag to allow regeneration for new document
+					backgroundThumbnailsStarted = false;
 					if (document && document.pages.length > 0) {
 						currentPageIndex = 0;
 						loadPage(0).then(() => {
@@ -775,7 +777,8 @@
 			canvasHeight,
 			devicePixelRatio: devicePixelRatioValue,
 			surface,
-			isValidShapeIndex
+			isValidShapeIndex,
+			isPlaying: isAutoPlaying
 		};
 	};
 
@@ -786,12 +789,16 @@
 		if (loadingAnimationId !== null) return;
 
 		const animate = () => {
-			if (!isLoading || !skCanvas || !ck || !surface) {
+			if (!isLoading) {
 				loadingAnimationId = null;
 				return;
 			}
 
-			drawLoadingScreen(createLoadingContext(), performance.now());
+			// Just draw once per frame if needed, though it is static now.
+			if (skCanvas && ck && surface) {
+				drawLoadingScreen(createLoadingContext(), performance.now());
+			}
+			// Keep the loop running to prevent other draws from overwriting it while loading
 			loadingAnimationId = requestAnimationFrame(animate);
 		};
 
@@ -891,7 +898,8 @@
 			// Disable overlays in export
 			selectedShape: { index: INVALID_INDEX, rendered: false },
 			hoverState: { shapeIndex: INVALID_INDEX, resizeCorner: null, isHoveringRotateCircle: false },
-			isValidShapeIndex: () => false
+			isValidShapeIndex: () => false,
+			isPlaying: true
 		};
 
 		recordingSkCanvas.save();
@@ -926,6 +934,8 @@
 		if (isLoading) {
 			if (skCanvas && ck && surface) {
 				drawLoadingScreen(createLoadingContext(), performance.now());
+				// Continue animation loop if loading
+				requestAnimationFrame(drawScene);
 			}
 			return;
 		}
@@ -1082,7 +1092,7 @@
 	};
 
 	// Watch for shape changes and schedule thumbnail capture
-	$: if (isInitialized && page && shapes.length > 0 && shapesHash !== '') {
+	$: if (isInitialized && page && shapes.length > 0) {
 		const currentHash = generateShapesHash(shapes);
 		if (currentHash !== shapesHash) {
 			shapesHash = currentHash;

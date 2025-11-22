@@ -127,9 +127,10 @@ export const drawSelectedBorder = (
 		{ x: x + width, y: y + height } // Bottom-right
 	];
 
+	// Adjust rotation handle position inversely with zoom
 	const rotationCircle = {
 		x : x + width / 2,
-		y : y - 100,
+		y : y - (30 / zoom), // Move closer/further based on zoom to stay visually consistent
 		radius : circleRadius
 	};
 
@@ -142,4 +143,8 @@ export const drawSelectedBorder = (
 		// Draw colored stroke on top
 		canvas.drawCircle(corner.x, corner.y, circleRadius, circleStrokePaint);
 	}
+	
+	// Cleanup
+	circleFillPaint.delete();
+	circleStrokePaint.delete();
 };

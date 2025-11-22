@@ -24,8 +24,20 @@ export const loadSkImage = async (ck: CanvasKit, url: string, blob?: Blob): Prom
 			}
 			buf = await promise;
 		}
+		
+		// Create the image from encoded data
 		const img = ck.MakeImageFromEncoded(new Uint8Array(buf));
-		return img;
+		
+		// Generate mipmaps for better downscaling performance and quality
+		if (img) {
+			const imgWithMips = img.makeCopyWithDefaultMipmaps();
+			if (imgWithMips) {
+				img.delete(); // Clean up the original non-mipmapped image
+				return imgWithMips;
+			}
+			return img; // Fallback if mipmap generation fails
+		}
+		return null;
 	} catch (error) {
 		console.error('Failed to load image:', url, error);
 		return null;
@@ -55,11 +67,10 @@ export async function loadImageBinary<
 	ck: CanvasKit,
 	data: T[]
 ): Promise<T[]> {
-	const result: T[] = [];
-	for (const shape of data) {
+	// Load all images in parallel instead of sequentially
+	const promises = data.map(async (shape) => {
 		if (shape.kind !== 'image') {
-			result.push(shape);
-			continue;
+			return shape;
 		}
 		const image = await loadSkImage(ck, shape.url, shape.blob);
 		const ratio = image ? image.width() / image.height() : 0;
@@ -67,13 +78,14 @@ export async function loadImageBinary<
 		// Preserve the logical width/height from the data file so layout size
 		// is independent from the intrinsic pixel resolution of the image.
 		// We only store the image handle and aspect ratio here.
-		result.push({
+		return {
 			...shape,
 			image,
 			ratio
-		});
-	}
-	return result;
+		};
+	});
+
+	return Promise.all(promises);
 }
 
 /**
@@ -90,6 +102,20 @@ export const drawImageShape = (
 
 	const src = ck.XYWHRect(0, 0, shape.image.width(), shape.image.height());
 	const dst = ck.XYWHRect(shape.x, shape.y, shape.width, shape.height);
-	canvas.drawImageRect(shape.image, src, dst, paint);
+	
+	// Use drawImageRectOptions for better quality downscaling (trilinear filtering)
+	// This takes advantage of the mipmaps generated during loading
+	if (canvas.drawImageRectOptions) {
+		canvas.drawImageRectOptions(
+			shape.image, 
+			src, 
+			dst, 
+			ck.FilterMode.Linear, 
+			ck.MipmapMode.Linear, 
+			paint
+		);
+	} else {
+		canvas.drawImageRect(shape.image, src, dst, paint);
+	}
 };
 

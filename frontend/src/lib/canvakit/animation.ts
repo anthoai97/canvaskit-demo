@@ -39,12 +39,26 @@ type AnimatedShape = {
 export const calculateAnimationState = (
 	ck: CanvasKit,
 	shape: AnimatedShape,
-	now: number
+	now: number,
+	forceFinalState: boolean = false
 ): AnimationState => {
 	const animation = shape.animation || { type: 'none' };
 	const animType = animation.type;
 	const animDuration = animation.duration ?? DEFAULT_ANIMATION_DURATION;
 	const animDelay = animation.delay ?? 0;
+
+	// If forced to final state, return the completed animation state
+	if (forceFinalState) {
+		return {
+			shouldDraw: true,
+			alpha: 1.0,
+			clipRect: null,
+			offsetX: 0,
+			offsetY: 0,
+			progress: 1.0,
+			isAnimating: false
+		};
+	}
 
 	// Initialize animation start time if needed
 	if (animType !== 'none' && shape.animationStart == null) {
@@ -162,11 +176,12 @@ export const drawAnimatedImageShape = (
 	canvas: Canvas,
 	shape: ImageShape,
 	paint: Paint,
-	now: number
+	now: number,
+	forceFinalState: boolean = false
 ): boolean => {
 	if (!shape.image) return false;
 
-	const animState = calculateAnimationState(ck, shape, now);
+	const animState = calculateAnimationState(ck, shape, now, forceFinalState);
 
 	if (!animState.shouldDraw) {
 		return animState.isAnimating;
@@ -218,9 +233,10 @@ export const drawAnimatedTextShape = (
 	canvas: Canvas,
 	fontMgr: FontMgr,
 	shape: TextShape,
-	now: number
+	now: number,
+	forceFinalState: boolean = false
 ): boolean => {
-	const animState = calculateAnimationState(ck, shape, now);
+	const animState = calculateAnimationState(ck, shape, now, forceFinalState);
 
 	if (!animState.shouldDraw) {
 		return animState.isAnimating;
