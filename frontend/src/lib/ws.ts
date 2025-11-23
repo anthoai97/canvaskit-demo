@@ -1,4 +1,5 @@
 // Simple WebSocket helper with auto-reconnect and heartbeat support.
+import { env } from '$env/dynamic/public';
 
 export interface BinaryMessage {
 	json: any;
@@ -54,6 +55,12 @@ export class CanvasKitWebSocket {
 	}
 
 	private defaultUrl(): string {
+		if (env.PUBLIC_API_URL) {
+			const apiUrl = new URL(env.PUBLIC_API_URL);
+			const protocol = apiUrl.protocol === 'https:' ? 'wss' : 'ws';
+			return `${protocol}://${apiUrl.host}/ws`;
+		}
+
 		const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
 		const host = window.location.hostname ?? 'localhost';
 		const port = 8000;

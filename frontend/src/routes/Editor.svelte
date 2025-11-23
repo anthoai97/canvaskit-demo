@@ -7,6 +7,7 @@
 	import { getShapeCenter } from '$lib/utils/transform';
 	import { DEFAULT_CAMERA_ZOOM, INVALID_INDEX } from '$lib/contants/const';
 	import { CanvasKitWebSocket, type BinaryMessage } from '$lib/ws';
+	import { env } from '$env/dynamic/public';
 	import { resetSelectedShape, type ResizeState, type RotationState } from '$lib/types/editor';
 	import { resetHoverState } from '$lib/utils/hover-state';
 	import type { EditorDocument, EditorPage } from '$lib/types/page';
@@ -532,10 +533,22 @@
 				}
 			} else if (message.json.event === 'audio_loaded') {
 				const data = message.json.data;
-				audioOptions = data.map((item: { url: string }, index: number) => ({
-					url: item.url,
-					name: `Audio ${index + 1} (${item.url.split('/').pop()})`
-				}));
+				audioOptions = data.map((item: { url: string }, index: number) => {
+					let url = item.url;
+					if (env.PUBLIC_API_URL && !url.startsWith('http')) {
+						// Remove leading slash if present to avoid double slashes if base has one
+						// Actually new URL handles this if base is valid
+						try {
+							url = new URL(url, env.PUBLIC_API_URL).toString();
+						} catch (e) {
+							console.error('Error constructing audio URL:', e);
+						}
+					}
+					return {
+						url: url,
+						name: `Audio ${index + 1} (${item.url.split('/').pop()})`
+					};
+				});
 			} else if (message.json.event === 'shape_updated') {
 				const updatedShape = message.json.data;
 				if (updatedShape && updatedShape.id) {
