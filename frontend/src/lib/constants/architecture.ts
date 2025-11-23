@@ -90,6 +90,11 @@ export const ARCHITECTURE_DATA: ArchitectureData = {
 						'Custom binary protocol for efficient bi-directional communication, optimizing the transfer of JSON data alongside binary assets.'
 				},
 				{
+					label: 'Multiplayer Sync',
+					description:
+						'Real-time broadcast of updates to all connected clients, enabling collaborative editing with automatic conflict resolution.'
+				},
+				{
 					label: 'Persistence',
 					description: 'Saves documents, pages, and assets to a SQLite database.'
 				},
@@ -110,25 +115,33 @@ export const ARCHITECTURE_DATA: ArchitectureData = {
 				link: 'https://skia.org/docs/user/modules/canvaskit/'
 			},
 			{ name: 'Mediabunny', description: 'Video Recording', link: 'https://mediabunny.dev/' },
-			{ name: 'Tailwind CSS', description: 'Utility-first Styling' },
+			{ name: 'Tailwind CSS', description: 'Utility-first Styling' }
 		],
 		backend: [
-			{ name: 'FastAPI', description: 'High-performance Python API', link: 'https://fastapi.tiangolo.com/' },
+			{
+				name: 'FastAPI',
+				description: 'High-performance Python API',
+				link: 'https://fastapi.tiangolo.com/'
+			},
 			{ name: 'SQLite', description: 'Database via SQLAlchemy' },
 			{ name: 'Websockets', description: 'Real-time Communication' },
 			{ name: 'Python 3.x', description: 'Server Language' }
 		]
 	},
 	architecture: {
-		diagram: '+-----------------------------------------------------------+\\n|                  Client (Frontend / Browser)              |\\n|                                                           |\\n|   +----------------+       +------------------------+     |\\n|   |  SvelteKit UI  | ----> |   CanvasKit Engine     |     |\\n|   +----------------+       | (WASM Graphics Core)   |     |\\n|           |                +-----------+------------+     |\\n|           |                            |                  |\\n|           v                            v                  |\\n|   +----------------+       +------------------------+     |\\n|   | WebSocket Client|      |     Video Recorder     |     |\\n|   +-------+--------+       +------------------------+     |\\n|           |                            |                  |\\n|           v                            v                  |\\n|   +-------------------------------------------------+     |\\n|   |                 SQLite Database                 |     |\\n|   +-------------------------------------------------+     |\\n|                                                           |\\n|                   Server (Backend / Python)               |\\n+-----------------------------------------------------------+',
+		diagram:
+			'+-----------------------------------------------------------+\\n|                  Client A (Browser)                       |\\n|   +----------------+       +------------------------+     |\\n|   |  SvelteKit UI  | ----> |   CanvasKit Engine     |     |\\n|   +----------------+       | (WASM Graphics Core)   |     |\\n|           |                +------------------------+     |\\n|           | (1) User Action                               |\\n|           v                                               |\\n|   +-------------------+                                   |\\n|   | WebSocket Client  |                                   |\\n|   +---------+---------+                                   |\\n|             |                                             |\\n|             | (2) Send Update                             |\\n+-------------+---------------------------------------------+\\n              |\\n              v\\n+-----------------------------------------------------------+\\n|                   Server (Backend / Python)               |\\n|                                                           |\\n|   +---------------------------------------------------+   |\\n|   |              WebSocket Manager                    |   |\\n|   |  - Receive updates from clients                   |   |\\n|   |  - Broadcast to all connected clients             |   |\\n|   |  - Manage multiplayer sessions                    |   |\\n|   +------------------------+--------------------------+   |\\n|                            |                              |\\n|                            | (3) Persist                  |\\n|                            v                              |\\n|   +---------------------------------------------------+   |\\n|   |              SQLite Database                      |   |\\n|   |  - Documents, Pages, Assets                       |   |\\n|   +---------------------------------------------------+   |\\n|                            |                              |\\n|                            | (4) Broadcast                |\\n+----------------------------+------------------------------+\\n              |                            |\\n              v                            v\\n+---------------------------+  +---------------------------+\\n|     Client B (Browser)    |  |     Client C (Browser)    |\\n|   +-------------------+   |  |   +-------------------+   |\\n|   | WebSocket Client  |   |  |   | WebSocket Client  |   |\\n|   +---------+---------+   |  |   +---------+---------+   |\\n|             |             |  |             |             |\\n|             | (5) Receive |  |             | (5) Receive |\\n|             v             |  |             v             |\\n|   +-------------------+   |  |   +-------------------+   |\\n|   |  SvelteKit UI     |   |  |   |  SvelteKit UI     |   |\\n|   |  (Auto-Update)    |   |  |   |  (Auto-Update)    |   |\\n|   +-------------------+   |  |   +-------------------+   |\\n+---------------------------+  +---------------------------+',
 		protocol: {
-			title: 'Communication Protocol',
+			title: 'Real-time Multiplayer Sync Protocol',
 			description:
-				'The project uses a custom **Binary WebSocket Protocol** to handle complex data structures efficiently:',
+				'The project uses a **Binary WebSocket Protocol** with real-time broadcast for multiplayer collaboration:',
 			steps: [
-				'**Header**: 4 bytes indicating the length of the JSON metadata.',
-				'**JSON Payload**: UTF-8 encoded JSON string containing event details and document structure.',
-				'**Blobs**: Sequence of binary blobs (images, audio) with their lengths, allowing single-message transfer.'
+				'**Message Format**: Binary frames with 4-byte header (JSON length) + UTF-8 JSON payload + optional binary blobs.',
+				'**Update Events**: Shape modifications, page changes, and asset uploads are sent as structured events.',
+				'**Broadcast Mechanism**: Server receives updates from any client and broadcasts to all connected clients in the same session.',
+				'**Sync Flow**: (1) User edits → (2) Client sends update → (3) Server persists to DB → (4) Server broadcasts → (5) All clients receive and apply changes.',
+				'**Conflict Resolution**: Last-write-wins strategy with server timestamp authority.',
+				'**Binary Optimization**: Images and assets are transferred as raw bytes (no Base64), reducing overhead by ~33%.'
 			]
 		}
 	},

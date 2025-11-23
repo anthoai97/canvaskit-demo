@@ -49,6 +49,7 @@
 	let editor: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
 	let overlayCanvas: HTMLCanvasElement;
+	let audioElement: HTMLAudioElement;
 
 	// ==================== Recording State ====================
 	let audioBlob: Blob | null = null;
@@ -64,6 +65,9 @@
 	let recordingPageIndex = 0;
 	let recordingPageStartTimestamp: number | null = null;
 	let recordingWasAnimating = false;
+	let exportProgress = 0; // Export progress percentage (0-100)
+	let exportCurrentPage = 0;
+	let exportTotalPages = 0;
 
 	const getExportSize = (resolution: ExportResolution) => {
 		switch (resolution) {
@@ -104,6 +108,11 @@
 			// Stop Recording
 			const blob = await recorder.stop(recordingTimeSec);
 			recordingLastTimestamp = null;
+
+			// Reset progress tracking
+			exportProgress = 0;
+			exportCurrentPage = 0;
+			exportTotalPages = 0;
 
 			// Clean up recording surface
 			if (recordingSurface) {
@@ -165,6 +174,11 @@
 			recordingPageIndex = 0;
 			recordingPageStartTimestamp = null;
 			recordingWasAnimating = false;
+
+			// Initialize progress tracking
+			exportProgress = 0;
+			exportCurrentPage = 1;
+			exportTotalPages = recordingDocument.pages.length;
 
 			await recorder.prepare(recordingCanvas, width, height, audioBlob || undefined);
 			await recorder.start();
@@ -470,11 +484,21 @@
 		if (isAutoPlaying) {
 			isAutoPlaying = false;
 			wasAnimating = false;
+			// Pause audio if playing
+			if (audioElement && !audioElement.paused) {
+				audioElement.pause();
+				audioElement.currentTime = 0; // Reset to beginning
+			}
 		} else {
 			startShapeAnimations(shapes);
 			isAutoPlaying = true;
 			wasAnimating = true;
 			scheduleDraw();
+			// Play audio if available
+			if (audioElement && selectedAudioUrl) {
+				audioElement.currentTime = 0; // Start from beginning
+				audioElement.play().catch((err) => console.error('Audio play failed:', err));
+			}
 		}
 	};
 
@@ -551,6 +575,21 @@
 						name: `Audio ${index + 1} (${item.url.split('/').pop()})`
 					};
 				});
+
+				// Automatically select the first audio item if available
+				if (audioOptions.length > 0) {
+					selectedAudioUrl = audioOptions[0].url;
+					// Fetch the audio blob
+					fetch(selectedAudioUrl)
+						.then((response) => response.blob())
+						.then((blob) => {
+							audioBlob = blob;
+						})
+						.catch((error) => {
+							console.error('Failed to fetch default audio:', error);
+							audioBlob = null;
+						});
+				}
 			} else if (message.json.event === 'shape_updated') {
 				const updatedShape = message.json.data;
 				if (updatedShape && updatedShape.id) {
@@ -1054,6 +1093,15 @@
 		// Wait at least 2s for static pages, or max animation time + 500ms buffer for animated pages
 		const requiredTime = maxDuration === 0 ? 2000 : maxDuration + 500;
 
+		// Calculate progress
+		// Progress per page = 100 / total pages
+		// Progress within page = (timeOnPage / requiredTime) * (100 / total pages)
+		const progressPerPage = 100 / exportTotalPages;
+		const pageProgress = Math.min((timeOnPage / requiredTime) * progressPerPage, progressPerPage);
+		const completedPagesProgress = recordingPageIndex * progressPerPage;
+		exportProgress = Math.min(Math.round(completedPagesProgress + pageProgress), 100);
+		exportCurrentPage = recordingPageIndex + 1;
+
 		if (timeOnPage > requiredTime) {
 			const nextIndex = recordingPageIndex + 1;
 			if (nextIndex >= recordingDocument.pages.length) {
@@ -1380,6 +1428,15 @@
 					{/if}
 				</div>
 			</div>
+
+			<!-- Multiplayer Note -->
+			<div
+				class="text-[12px] text-zinc border border-sky-800/30 rounded px-2 py-1.5 leading-relaxed"
+			>
+				💡 <span class="text-zinc-700"
+					>Open two browser tabs to observe the multiplayer update and synchronization event.</span
+				>
+			</div>
 		</div>
 		<div class="mb-4">
 			<h3 class="block text-xs font-medium text-zinc-400 uppercase mb-2">Actions</h3>
@@ -1477,11 +1534,30 @@
 							d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
 						></path>
 					</svg>
-					<span>{isExporting ? 'Saving...' : 'Exporting...'}</span>
+					<span>
+						{#if isExporting}
+							Saving...
+						{:else}
+							Exporting... {exportProgress}% (Page {exportCurrentPage}/{exportTotalPages})
+						{/if}
+					</span>
 				{:else}
 					Export Canvas to Video
 				{/if}
 			</button>
+
+			<!-- Progress Bar -->
+			{#if isRecording}
+				<div class="w-full mt-2 bg-zinc-800 rounded-full h-2 overflow-hidden">
+					<div
+						class="bg-sky-500 h-full transition-all duration-300 ease-out"
+						style="width: {exportProgress}%"
+					></div>
+				</div>
+				<div class="text-xs text-zinc-400 mt-1 text-center">
+					Page {exportCurrentPage} of {exportTotalPages} • {exportProgress}% complete
+				</div>
+			{/if}
 		</div>
 	</div>
 
@@ -1506,6 +1582,9 @@
 			bind:this={recordingCanvas}
 			class="fixed top-0 left-0 opacity-0 pointer-events-none -z-50"
 		></canvas>
+
+		<!-- Hidden Audio Element -->
+		<audio bind:this={audioElement} src={selectedAudioUrl} preload="auto" class="hidden"></audio>
 
 		<!-- Timeline/Page View -->
 		<div class="h-[120px] bg-white border-t border-zinc-200 flex flex-col">

@@ -17,7 +17,7 @@
 	</div>
 
 	<!-- Features Grid -->
-	<section>
+	<section class="mb-4">
 		<h3 class="text-xl font-bold text-zinc-100 mb-6 flex items-center gap-3">
 			<span class="p-2 rounded-lg bg-sky-500/10 text-sky-400">✨</span>
 			<span class="bg-gradient-to-r from-zinc-100 to-zinc-400 bg-clip-text text-transparent"
@@ -25,7 +25,7 @@
 			>
 		</h3>
 		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-			{#each ARCHITECTURE_DATA.features as feature}
+			{#each ARCHITECTURE_DATA.features.filter((f) => f.title !== '⚡ Real-time & Backend') as feature}
 				<div
 					class="group relative bg-zinc-900/40 rounded-xl p-5 border border-zinc-800/60 hover:border-sky-500/30 transition-all duration-300 hover:bg-zinc-900/60 hover:shadow-lg hover:shadow-sky-900/10"
 				>
@@ -50,6 +50,54 @@
 					</ul>
 				</div>
 			{/each}
+		</div>
+	</section>
+
+	<!-- Real-time & Backend Highlight Card -->
+	<section>
+		<div
+			class="group relative bg-gradient-to-br from-zinc-900/80 to-zinc-950/80 rounded-2xl p-6 border border-zinc-800/60 hover:border-sky-500/40 transition-all duration-500 hover:shadow-2xl hover:shadow-sky-900/20 overflow-hidden"
+		>
+			<!-- Background gradient effect -->
+			<div
+				class="absolute inset-0 bg-gradient-to-br from-sky-500/5 via-purple-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+			></div>
+
+			<!-- Content -->
+			<div class="relative z-10">
+				<!-- Header -->
+				<div class="flex items-center gap-3 mb-6">
+					<div class="p-2.5 rounded-xl bg-gradient-to-br from-sky-500/20 to-purple-500/20">
+						<span class="text-2xl">⚡</span>
+					</div>
+					<h3
+						class="text-xl font-bold bg-gradient-to-r from-zinc-100 to-zinc-300 bg-clip-text text-transparent uppercase tracking-wide"
+					>
+						Real-time & Backend
+					</h3>
+				</div>
+
+				<!-- Feature Cards -->
+				<div class="space-y-4">
+					{#each ARCHITECTURE_DATA.features.find((f) => f.title === '⚡ Real-time & Backend')?.items || [] as item}
+						<div class="group/item">
+							<h4
+								class="text-sky-400 font-semibold mb-1.5 text-base group-hover/item:text-sky-300 transition-colors"
+							>
+								{item.label}
+							</h4>
+							<p class="text-zinc-400 text-sm leading-relaxed pl-0">
+								{item.description}
+							</p>
+						</div>
+					{/each}
+				</div>
+			</div>
+
+			<!-- Decorative corner accent -->
+			<div
+				class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-sky-500/10 to-transparent rounded-bl-full opacity-50 group-hover:opacity-100 transition-opacity"
+			></div>
 		</div>
 	</section>
 
