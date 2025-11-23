@@ -20,6 +20,7 @@ A high-performance web-based graphics editor built with **CanvasKit-WASM** (Skia
 - **Persistence**: Saves documents, pages, and assets to a SQLite database.
 - **Thumbnail Generation**: Automatically generates and caches thumbnails for pages using a background rendering process.
 
+
 ## 2. Tech Stack
 
 ### Frontend

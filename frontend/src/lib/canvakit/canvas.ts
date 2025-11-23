@@ -7,7 +7,7 @@ import type { CanvasKit, Surface } from 'canvaskit-wasm';
  */
 export const initCanvasKit = async (): Promise<CanvasKit> => {
 	return await CanvasKitInit({
-		locateFile: (file) => `node_modules/canvaskit-wasm/bin/${file}`
+		locateFile: (file) => `https://unpkg.com/canvaskit-wasm@latest/bin/${file}`
 	});
 };
 

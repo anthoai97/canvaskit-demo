@@ -40,6 +40,8 @@
 	} from '$lib/editor/thumbnail-manager';
 	import { VideoRecorder } from '$lib/utils/video-recorder';
 	import { debounce } from '$lib/utils/index';
+	import Modal from '$lib/components/Modal.svelte';
+	import ArchitectureContent from '$lib/components/ArchitectureContent.svelte';
 
 	type ExportResolution = '720p' | '1080p' | '2k';
 
@@ -1332,12 +1334,21 @@
 			document = updatedDocument;
 		});
 	}
+
+	// Architecture Modal
+	let showArchitectureModal = false;
 </script>
 
 <div class="flex h-screen">
-	<div class="w-[280px] flex flex-col justify-between overflow-hidden px-5 py-5">
+	<div class="w-[280px] flex flex-col justify-between overflow-y-auto px-5 py-5 custom-scrollbar">
 		<!-- WebSocket Debug -->
 		<div class="space-y-3">
+			<button
+				class="w-full px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium rounded border border-zinc-700 transition-colors mb-10 h-[36px]"
+				on:click={() => (showArchitectureModal = true)}
+			>
+				Architecture & Tech Stack
+			</button>
 			<div class="flex items-center justify-between">
 				<h3 class="text-xs block font-medium text-zinc-400 uppercase">WebSocket</h3>
 				{#if wsMessages.length > 0}
@@ -1353,7 +1364,7 @@
 			<div class="space-y-1">
 				<div class="text-[10px] text-zinc-500 uppercase tracking-wide mb-2">Messages</div>
 				<div
-					class="max-h-64 overflow-y-auto rounded-lg bg-zinc-950/50 border border-zinc-800 p-3 space-y-1.5"
+					class="max-h-64 overflow-y-auto rounded-lg bg-zinc-950/50 border border-zinc-800 p-3 space-y-1.5 custom-scrollbar"
 				>
 					{#if wsMessages.length === 0}
 						<div class="text-xs text-zinc-600 italic text-center py-4">No messages yet</div>
@@ -1395,7 +1406,7 @@
 				<label class="text-xs text-zinc-500 block mb-1">
 					Audio Track (Optional)
 					<select
-						class="mt-1 text-xs w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-zinc-300 focus:border-sky-500 focus:outline-none"
+						class="mt-1 text-xs w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-zinc-300 focus:border-sky-500 focus:outline-none h-[36px]"
 						value={selectedAudioUrl}
 						on:change={handleAudioSelect}
 					>
@@ -1412,7 +1423,7 @@
 				<div class="flex flex-wrap gap-1">
 					<button
 						type="button"
-						class="px-2 py-1 rounded text-[11px] border transition-colors {exportResolution ===
+						class="px-2 py-1 rounded text-[11px] border transition-colors w-[56px] {exportResolution ===
 						'720p'
 							? 'bg-sky-600 text-white border-sky-500'
 							: 'bg-zinc-900 text-zinc-300 border-zinc-700 hover:border-sky-500'}"
@@ -1422,7 +1433,7 @@
 					</button>
 					<button
 						type="button"
-						class="px-2 py-1 rounded text-[11px] border transition-colors {exportResolution ===
+						class="px-2 py-1 rounded text-[11px] border transition-colors w-[56px] {exportResolution ===
 						'1080p'
 							? 'bg-sky-600 text-white border-sky-500'
 							: 'bg-zinc-900 text-zinc-300 border-zinc-700 hover:border-sky-500'}"
@@ -1432,7 +1443,8 @@
 					</button>
 					<button
 						type="button"
-						class="px-2 py-1 rounded text-[11px] border transition-colors {exportResolution === '2k'
+						class="px-2 py-1 rounded text-[11px] border transition-colors w-[56px] {exportResolution ===
+						'2k'
 							? 'bg-sky-600 text-white border-sky-500'
 							: 'bg-zinc-900 text-zinc-300 border-zinc-700 hover:border-sky-500'}"
 						on:click={() => (exportResolution = '2k')}
@@ -1443,7 +1455,7 @@
 			</div>
 
 			<button
-				class="w-full px-3 py-2 rounded-md flex items-center justify-center gap-2 {isRecording ||
+				class="w-full px-3 py-2 rounded-md flex items-center justify-center gap-2 h-[36px] {isRecording ||
 				isExporting
 					? 'bg-zinc-600 cursor-not-allowed opacity-80'
 					: 'bg-sky-600 hover:bg-sky-500 active:bg-sky-700'} text-xs font-medium text-white transition-colors duration-150 shadow-sm hover:shadow"
@@ -1567,5 +1579,29 @@
 	</div>
 </div>
 
+<Modal
+	title="Architecture & Tech Stack"
+	isOpen={showArchitectureModal}
+	on:close={() => (showArchitectureModal = false)}
+>
+	<ArchitectureContent />
+</Modal>
+
 <style>
+	.custom-scrollbar::-webkit-scrollbar {
+		width: 6px;
+	}
+
+	.custom-scrollbar::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.custom-scrollbar::-webkit-scrollbar-thumb {
+		background-color: rgba(63, 63, 70, 0.5); /* zinc-700 with opacity */
+		border-radius: 3px;
+	}
+
+	.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+		background-color: rgba(82, 82, 91, 0.8); /* zinc-600 with opacity */
+	}
 </style>

@@ -45,6 +45,7 @@ app = FastAPI(title="Editor Backend", lifespan=lifespan)
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+		"https://canvaskit-demo.railway.internal"
 ]
 
 app.add_middleware(
