@@ -101,71 +101,6 @@
 		</div>
 	</section>
 
-	<!-- Tech Stack -->
-	<section>
-		<h3 class="text-xl font-bold text-zinc-100 mb-6 flex items-center gap-3">
-			<span class="p-2 rounded-lg bg-purple-500/10 text-purple-400">🛠️</span>
-			<span class="bg-gradient-to-r from-zinc-100 to-zinc-400 bg-clip-text text-transparent"
-				>Tech Stack</span
-			>
-		</h3>
-		<div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-			<!-- Frontend -->
-			<div class="space-y-4">
-				<h4 class="text-xs font-bold text-zinc-500 uppercase tracking-widest pl-1">Frontend</h4>
-				<div class="grid gap-2.5">
-					{#each ARCHITECTURE_DATA.techStack.frontend as item}
-						<a
-							href={item.link || undefined}
-							target="_blank"
-							class="flex items-center justify-between p-3 rounded-lg bg-zinc-900/50 border border-zinc-800/80 {item.link
-								? 'hover:border-sky-500/40 hover:bg-zinc-800 hover:shadow-md hover:shadow-sky-900/10 cursor-pointer group'
-								: ''} transition-all duration-200"
-						>
-							<span
-								class="text-sm text-zinc-300 font-medium group-hover:text-sky-400 transition-colors"
-								>{item.name}</span
-							>
-							{#if item.description}
-								<span
-									class="text-[10px] uppercase tracking-wide text-zinc-500 font-medium bg-zinc-950/50 px-2 py-0.5 rounded border border-zinc-800/50"
-									>{item.description}</span
-								>
-							{/if}
-						</a>
-					{/each}
-				</div>
-			</div>
-
-			<!-- Backend -->
-			<div class="space-y-4">
-				<h4 class="text-xs font-bold text-zinc-500 uppercase tracking-widest pl-1">Backend</h4>
-				<div class="grid gap-2.5">
-					{#each ARCHITECTURE_DATA.techStack.backend as item}
-						<a
-							href={item.link || undefined}
-							target="_blank"
-							class="flex items-center justify-between p-3 rounded-lg bg-zinc-900/50 border border-zinc-800/80 {item.link
-								? 'hover:border-emerald-500/40 hover:bg-zinc-800 hover:shadow-md hover:shadow-emerald-900/10 cursor-pointer group'
-								: ''} transition-all duration-200"
-						>
-							<span
-								class="text-sm text-zinc-300 font-medium group-hover:text-emerald-400 transition-colors"
-								>{item.name}</span
-							>
-							{#if item.description}
-								<span
-									class="text-[10px] uppercase tracking-wide text-zinc-500 font-medium bg-zinc-950/50 px-2 py-0.5 rounded border border-zinc-800/50"
-									>{item.description}</span
-								>
-							{/if}
-						</a>
-					{/each}
-				</div>
-			</div>
-		</div>
-	</section>
-
 	<!-- Architecture Diagram -->
 	<section>
 		<h3 class="text-xl font-bold text-zinc-100 mb-6 flex items-center gap-3">
@@ -246,6 +181,71 @@
 					</p>
 				</div>
 			{/each}
+		</div>
+	</section>
+
+	<!-- Tech Stack -->
+	<section>
+		<h3 class="text-xl font-bold text-zinc-100 mb-6 flex items-center gap-3">
+			<span class="p-2 rounded-lg bg-purple-500/10 text-purple-400">🛠️</span>
+			<span class="bg-gradient-to-r from-zinc-100 to-zinc-400 bg-clip-text text-transparent"
+				>Tech Stack</span
+			>
+		</h3>
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+			<!-- Frontend -->
+			<div class="space-y-4">
+				<h4 class="text-xs font-bold text-zinc-500 uppercase tracking-widest pl-1">Frontend</h4>
+				<div class="grid gap-2.5">
+					{#each ARCHITECTURE_DATA.techStack.frontend as item}
+						<a
+							href={item.link || undefined}
+							target="_blank"
+							class="flex items-center justify-between p-3 rounded-lg bg-zinc-900/50 border border-zinc-800/80 {item.link
+								? 'hover:border-sky-500/40 hover:bg-zinc-800 hover:shadow-md hover:shadow-sky-900/10 cursor-pointer group'
+								: ''} transition-all duration-200"
+						>
+							<span
+								class="text-sm text-zinc-300 font-medium group-hover:text-sky-400 transition-colors"
+								>{item.name}</span
+							>
+							{#if item.description}
+								<span
+									class="text-[10px] uppercase tracking-wide text-zinc-500 font-medium bg-zinc-950/50 px-2 py-0.5 rounded border border-zinc-800/50"
+									>{item.description}</span
+								>
+							{/if}
+						</a>
+					{/each}
+				</div>
+			</div>
+
+			<!-- Backend -->
+			<div class="space-y-4">
+				<h4 class="text-xs font-bold text-zinc-500 uppercase tracking-widest pl-1">Backend</h4>
+				<div class="grid gap-2.5">
+					{#each ARCHITECTURE_DATA.techStack.backend as item}
+						<a
+							href={item.link || undefined}
+							target="_blank"
+							class="flex items-center justify-between p-3 rounded-lg bg-zinc-900/50 border border-zinc-800/80 {item.link
+								? 'hover:border-emerald-500/40 hover:bg-zinc-800 hover:shadow-md hover:shadow-emerald-900/10 cursor-pointer group'
+								: ''} transition-all duration-200"
+						>
+							<span
+								class="text-sm text-zinc-300 font-medium group-hover:text-emerald-400 transition-colors"
+								>{item.name}</span
+							>
+							{#if item.description}
+								<span
+									class="text-[10px] uppercase tracking-wide text-zinc-500 font-medium bg-zinc-950/50 px-2 py-0.5 rounded border border-zinc-800/50"
+									>{item.description}</span
+								>
+							{/if}
+						</a>
+					{/each}
+				</div>
+			</div>
 		</div>
 	</section>
 </div>

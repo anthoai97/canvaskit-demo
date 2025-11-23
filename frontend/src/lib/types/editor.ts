@@ -1,7 +1,7 @@
 import type { Shape } from './shape';
 import type { ResizeCorner } from '../utils/resize';
 import type { Point } from '../utils/transform';
-import { INVALID_INDEX } from '../contants/const';
+import { INVALID_INDEX } from '../constants/const';
 
 export interface SelectedShape {
 	index: number;

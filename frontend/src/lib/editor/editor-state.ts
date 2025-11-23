@@ -7,7 +7,7 @@ import type { HoverState } from '$lib/utils/hover-state';
 import type { ResizeCorner } from '$lib/utils/resize';
 import { createHoverState, resetHoverState } from '$lib/utils/hover-state';
 import { createSelectedShape, resetSelectedShape } from '$lib/types/editor';
-import { DEFAULT_CAMERA_ZOOM } from '$lib/contants/const';
+import { DEFAULT_CAMERA_ZOOM } from '$lib/constants/const';
 
 /**
  * Groups all editor state into a single object for better organization

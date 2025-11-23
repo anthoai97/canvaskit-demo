@@ -2,7 +2,7 @@ import type { CanvasKit, Canvas, Paint } from 'canvaskit-wasm';
 import type { EditorPage } from '$lib/types/page';
 import type { CameraState } from '$lib/types/camera';
 import { rgbaToCanvasKitColor, type RGBA } from '$lib/types/color';
-import { DEFAULT_HOVER_BORDER, DEFAULT_TOOL_BORDER } from '$lib/contants/const';
+import { DEFAULT_HOVER_BORDER, DEFAULT_TOOL_BORDER } from '$lib/constants/const';
 
 export interface PaintObjects {
 	background: Paint;

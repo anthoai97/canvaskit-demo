@@ -38,7 +38,7 @@ export interface ArchitectureData {
 
 export const ARCHITECTURE_DATA: ArchitectureData = {
 	intro:
-		'A high-performance web graphics editor built with **CanvasKit-WASM (Skia)** and **SvelteKit**, powered by a **WebSocket-based** backend. Designed as a modern WebGL and WebAssembly application, the project showcases how to implement a professional, real-time design environment with advanced rendering, keyframe animation, and high-quality video export.',
+		'A fast, WebSocket-driven web graphics editor demo using **CanvasKit-WASM (Skia)**, designed to utilize WebGL and WebAssembly for advanced rendering, keyframe animation, and high-quality video output.',
 	features: [
 		{
 			title: '🎨 Rich Graphics Editor',

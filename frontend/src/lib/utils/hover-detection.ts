@@ -1,6 +1,6 @@
 import type { Point } from './transform';
 import type { Shape } from '$lib/types/shape';
-import { INVALID_INDEX } from '$lib/contants/const';
+import { INVALID_INDEX } from '$lib/constants/const';
 import { findShapeAtPoint } from './hit-test';
 import {
 	getHoveredResizeCorner,

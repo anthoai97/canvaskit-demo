@@ -10,7 +10,7 @@ import { drawTextShape } from '$lib/canvakit/text';
 import { getShapeCenter } from '$lib/utils/transform';
 import { calculateViewport, isRectVisible } from '$lib/utils/viewport';
 import { drawHoverBorder, drawSelectedBorder } from '$lib/canvakit/drawing';
-import { INVALID_INDEX } from '$lib/contants/const';
+import { INVALID_INDEX } from '$lib/constants/const';
 
 export interface RenderContext {
 	skCanvas: Canvas;

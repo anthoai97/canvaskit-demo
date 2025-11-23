@@ -1,5 +1,5 @@
 import type { Shape } from '$lib/types/shape';
-import { DEFAULT_TOOL_BORDER } from '$lib/contants/const';
+import { DEFAULT_TOOL_BORDER } from '$lib/constants/const';
 import { isPointInCircle } from './hit-test';
 import {
 	type Point,

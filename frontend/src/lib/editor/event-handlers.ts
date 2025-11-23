@@ -11,7 +11,7 @@ import { resetHoverState } from '$lib/utils/hover-state';
 import { getCornerDirection } from '$lib/utils/resize';
 import { calculateResize, calculateRotation, initializeResize, initializeRotation } from '$lib/utils/shape-operations';
 import { getShapeCenter } from '$lib/utils/transform';
-import { CURSOR_GRAB, CURSOR_GRABBING, HOVER_CHECK_DELAY, INVALID_INDEX, MAX_CAMERA_ZOOM, MIN_CAMERA_ZOOM, ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from '$lib/contants/const';
+import { CURSOR_GRAB, CURSOR_GRABBING, HOVER_CHECK_DELAY, INVALID_INDEX, MAX_CAMERA_ZOOM, MIN_CAMERA_ZOOM, ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from '$lib/constants/const';
 import { CURSOR_DEFAULT, getCursorStyle } from '$lib/utils/cursor';
 
 export interface EventHandlerContext {

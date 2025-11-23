@@ -5,7 +5,7 @@
 	import { loadFonts, preloadFonts } from '$lib/canvakit/font';
 	import { drawTextShape } from '$lib/canvakit/text';
 	import { getShapeCenter } from '$lib/utils/transform';
-	import { DEFAULT_CAMERA_ZOOM, INVALID_INDEX } from '$lib/contants/const';
+	import { DEFAULT_CAMERA_ZOOM, INVALID_INDEX } from '$lib/constants/const';
 	import { CanvasKitWebSocket, type BinaryMessage } from '$lib/ws';
 	import { env } from '$env/dynamic/public';
 	import { resetSelectedShape, type ResizeState, type RotationState } from '$lib/types/editor';

@@ -3,7 +3,7 @@ import {
 	CURSOR_POINTER,
 	CURSOR_GRAB,
 	CURSOR_GRABBING
-} from '$lib/contants/const';
+} from '$lib/constants/const';
 import type { ResizeCorner, CardinalDirection } from './resize';
 
 export { CURSOR_DEFAULT };

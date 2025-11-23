@@ -1,5 +1,5 @@
 import type { ResizeCorner } from './resize';
-import { INVALID_INDEX } from '$lib/contants/const';
+import { INVALID_INDEX } from '$lib/constants/const';
 
 export interface HoverState {
 	shapeIndex: number;

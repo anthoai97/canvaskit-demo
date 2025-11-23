@@ -1,6 +1,6 @@
 import type { Canvas, CanvasKit, FontMgr } from 'canvaskit-wasm';
 import type { TextShape } from '$lib/types/shape';
-import { fontFamilies } from '$lib/contants/const';
+import { fontFamilies } from '$lib/constants/const';
 
 /**
  * Draws a text shape using CanvasKit Paragraphs.
