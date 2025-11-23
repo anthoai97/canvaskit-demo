@@ -1,5 +1,5 @@
 # Build stage
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 
 # Install dependencies
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY . .
@@ -16,7 +16,7 @@ COPY . .
 RUN npm run build
 
 # Run stage
-FROM node:20-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
@@ -26,7 +26,7 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 
 # Install production dependencies only
-RUN npm ci --omit=dev
+RUN npm install --production
 
 # Expose port
 EXPOSE 3000
