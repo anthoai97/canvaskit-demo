@@ -1450,12 +1450,12 @@
 					>
 						Doc 1
 					</button>
-					<!-- <button
+					<button
 						class="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] rounded border border-zinc-700 transition-colors"
 						on:click={() => loadDocument('2')}
 					>
 						Doc 2
-					</button> -->
+					</button>
 				</div>
 			</div>
 
