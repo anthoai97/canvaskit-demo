@@ -41,7 +41,10 @@ export interface EventHandlerContext {
 	onCopy: () => void;
 	onPaste: () => void;
 	onUndo: () => void;
+	onDelete: () => void;
 }
+
+
 
 /**
  * Updates cursor style based on current state
@@ -411,6 +414,13 @@ export function handleMouseLeave(
  */
 export function handleKeyDown(event: KeyboardEvent, context: EventHandlerContext): void {
 	if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+		return;
+	}
+
+	// Handle Delete or Backspace
+	if (event.code === 'Delete' || event.key === 'Delete' || event.code === 'Backspace' || event.key === 'Backspace') {
+		event.preventDefault();
+		context.onDelete();
 		return;
 	}
 

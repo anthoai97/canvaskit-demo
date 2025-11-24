@@ -18,7 +18,7 @@ from backend.database import SessionLocal
 from backend.seed import seed_data
 from backend.models import Document
 from backend.websocket_manager import ConnectionManager
-from backend.crud import get_document_data, get_audio_data, update_shape, create_shape
+from backend.crud import get_document_data, get_audio_data, update_shape, create_shape, sync_page_shapes
 
 
 @asynccontextmanager
@@ -225,6 +225,24 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 "temp_id": message.get("temp_id"), # Frontend should send this
                                 "data": new_shape
                             })
+                    finally:
+                        db.close()
+
+            elif event_type == "sync_page_shapes":
+                page_id = message.get("page_id")
+                shapes_data = message.get("shapes")
+                
+                if page_id and shapes_data is not None:
+                    db = SessionLocal()
+                    try:
+                        synced_shapes = sync_page_shapes(db, page_id, shapes_data)
+                        
+                        # Broadcast full sync to all clients (including sender to confirm IDs/state)
+                        await broadcast_binary_json({
+                            "event": "page_state_synced",
+                            "page_id": page_id,
+                            "shapes": synced_shapes
+                        })
                     finally:
                         db.close()
 

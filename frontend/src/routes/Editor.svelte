@@ -168,7 +168,13 @@
 				...document!,
 				pages: document!.pages.map((p) => ({
 					...p,
-					shapes: p.shapes.map((s) => ({ ...s }))
+					shapes: p.shapes.map((s) => {
+						// Explicitly copy the image property for ImageShape to preserve loaded images
+						if (s.kind === 'image') {
+							return { ...s, image: s.image };
+						}
+						return { ...s };
+					})
 				}))
 			};
 			recordingPageIndex = 0;
@@ -477,6 +483,9 @@
 	// Reactive: Update current page when index changes (only after initialization)
 	$: if (isInitialized && currentPageIndex >= 0) {
 		loadPage(currentPageIndex);
+		// Schedule thumbnail capture for the newly loaded page
+		// This ensures all pages get thumbnails when they become active
+		scheduleThumbnailCapture();
 	}
 
 	/**
@@ -651,6 +660,44 @@
 
 						shapes = [...shapes];
 					}
+				}
+			} else if (message.json.event === 'page_state_synced') {
+				const syncedShapes = message.json.shapes;
+				const pageId = message.json.page_id;
+
+				if (page && page.id === pageId && syncedShapes) {
+					// Full sync of shapes
+					// We need to be careful not to break image references if possible,
+					// but since this is a full sync, we might need to reload images if they are new.
+					// However, for existing images, we can try to preserve the object if ID matches.
+
+					const newShapes = syncedShapes.map((s: any) => {
+						// Try to find existing shape to preserve image object
+						const existing = shapes.find((ex) => ex.id === s.id);
+						if (existing && existing.kind === 'image' && existing.image) {
+							s.image = existing.image;
+						} else if (s.kind === 'image' && s.url) {
+							// Load image if missing
+							loadSkImage(ck, s.url).then((image) => {
+								if (image) {
+									// We can't easily update 's' here as it's already in the array.
+									// We'd need to find it in 'shapes' again.
+									const target = shapes.find((sh) => sh.id === s.id);
+									if (target && target.kind === 'image') {
+										target.image = image;
+										target.ratio = image.width() / image.height();
+										scheduleDraw();
+										scheduleThumbnailCapture();
+									}
+								}
+							});
+						}
+						return s;
+					});
+
+					shapes = newShapes;
+					scheduleDraw();
+					scheduleThumbnailCapture();
 				}
 			}
 		});
@@ -1132,17 +1179,87 @@
 						scheduleDraw();
 						scheduleThumbnailCapture();
 
-						// Sync with backend?
-						// Ideally we should sync the whole state or diff it.
-						// For this demo, we might need a 'bulk_update' or just let it be local until next change.
-						// But to keep multiplayer in sync, we should probably send updates.
-						// Since we don't have bulk update, we can iterate and send updates for changed shapes?
-						// Or just rely on the next user action to sync.
-						// Given the requirement "send event to update backend after copy" (paste),
-						// we should probably sync undo too.
-						// Let's leave backend sync for undo as a TODO or "nice to have" unless explicitly requested,
-						// as it might be heavy to sync all shapes.
-						// Actually, let's just trigger a redraw for now.
+						// Sync with backend
+						if (ws && page) {
+							ws.send({
+								event: 'sync_page_shapes',
+								page_id: page.id,
+								shapes: shapes.map((s) => ({
+									id: s.id,
+									kind: s.kind,
+									x: s.x,
+									y: s.y,
+									width: s.width,
+									height: s.height,
+									rotate: s.rotate,
+									// Include other properties
+									...(s.kind === 'text'
+										? {
+												text: s.text,
+												fontSize: s.fontSize,
+												fontFamily: s.fontFamily,
+												fontWeight: s.fontWeight,
+												fontStyle: s.fontStyle,
+												fontColor: s.fontColor,
+												fontOpacity: s.fontOpacity
+											}
+										: {
+												url: s.url,
+												ratio: s.ratio
+											}),
+									animation: s.animation
+								}))
+							});
+						}
+					}
+				}
+			},
+			onDelete: () => {
+				if (selectedShape.index !== INVALID_INDEX) {
+					addToHistory();
+
+					// Remove the shape from the array
+					shapes = shapes.filter((_, index) => index !== selectedShape.index);
+
+					// Clear selection
+					selectedShape.index = INVALID_INDEX;
+					selectedShape.rendered = false;
+					resetHoverState(hoverState);
+
+					scheduleDraw();
+					scheduleThumbnailCapture();
+
+					// Sync with backend
+					if (ws && page) {
+						ws.send({
+							event: 'sync_page_shapes',
+							page_id: page.id,
+							shapes: shapes.map((s) => ({
+								id: s.id,
+								kind: s.kind,
+								x: s.x,
+								y: s.y,
+								width: s.width,
+								height: s.height,
+								rotate: s.rotate,
+								// Include other properties
+								...(s.kind === 'text'
+									? {
+											text: s.text,
+											fontSize: s.fontSize,
+											fontFamily: s.fontFamily,
+											fontWeight: s.fontWeight,
+											fontStyle: s.fontStyle,
+											fontColor: s.fontColor,
+											fontOpacity: s.fontOpacity
+										}
+									: {
+											url: s.url,
+											ratio: s.ratio
+										}),
+								animation: s.animation
+							}))
+						});
 					}
 				}
 			}
@@ -1259,9 +1376,22 @@
 			startShapeAnimations(page.shapes, now);
 		}
 
-		// 3. Draw & Capture
-		// We need to pass the RECORDING page to drawRecordingFrame
-		drawRecordingFrame(page, now);
+		// 3. Frame Throttling - Only capture frames at 30 FPS
+		const TARGET_FPS = 30;
+		const FRAME_INTERVAL = 1000 / TARGET_FPS; // ~33.33ms between frames
+
+		if (recordingLastTimestamp === null) {
+			recordingLastTimestamp = now;
+		}
+
+		const timeSinceLastFrame = now - recordingLastTimestamp;
+
+		// Only draw and capture if enough time has passed for the next frame
+		if (timeSinceLastFrame >= FRAME_INTERVAL) {
+			// Draw & Capture
+			drawRecordingFrame(page, now);
+			recordingLastTimestamp = now;
+		}
 
 		// 4. Check for Page Switch
 		const timeOnPage = now - recordingPageStartTimestamp;
@@ -1352,17 +1482,15 @@
 		// Clean up recording paints
 		Object.values(recordingPaints).forEach((p) => p.delete());
 
-		// Capture frame for encoder
-		if (recordingLastTimestamp === null) {
-			recordingLastTimestamp = now;
-		}
-		const dtSec = (now - recordingLastTimestamp) / 1000;
-		recordingLastTimestamp = now;
+		// Capture frame for encoder with constant frame rate (30 FPS)
+		// Frame throttling is handled in recordLoop to ensure we capture at exactly 30 FPS
+		const FRAME_DURATION = 1 / 30; // 0.0333 seconds per frame
+
 		const frameTimestamp = recordingTimeSec;
-		recordingTimeSec += dtSec;
+		recordingTimeSec += FRAME_DURATION;
 
 		recorder
-			.captureFrame(frameTimestamp, dtSec)
+			.captureFrame(frameTimestamp, FRAME_DURATION)
 			.catch((err) => console.error('captureFrame error:', err));
 
 		return isAnimating;
@@ -1545,19 +1673,23 @@
 		}
 	}
 
-	// Start background thumbnail processing when document is loaded (only once)
-	$: if (
-		isInitialized &&
-		document &&
-		document.pages.length > 0 &&
-		!backgroundThumbnailsStarted &&
-		ck &&
-		fontMgr
-	) {
-		backgroundThumbnailsStarted = true;
-		scheduleBackgroundThumbnailProcessing(ck, fontMgr, document, (updatedDocument) => {
-			document = updatedDocument;
-		});
+	// Start background thumbnail processing when document is loaded or when pages change
+	$: if (isInitialized && document && document.pages.length > 0 && ck && fontMgr) {
+		// Check if there are pages needing thumbnails
+		const pagesNeedingThumbnails = document.pages.filter(
+			(p) => !p.thumbnailUrl && p.shapes.length > 0
+		);
+
+		// Only trigger background processing if there are pages that need thumbnails
+		// and we haven't started processing yet, or if new pages were added
+		if (pagesNeedingThumbnails.length > 0 && !backgroundThumbnailsStarted) {
+			backgroundThumbnailsStarted = true;
+			scheduleBackgroundThumbnailProcessing(ck, fontMgr, document, (updatedDocument) => {
+				document = updatedDocument;
+				// Reset flag after processing completes to allow re-processing if needed
+				backgroundThumbnailsStarted = false;
+			});
+		}
 	}
 
 	// Architecture Modal
