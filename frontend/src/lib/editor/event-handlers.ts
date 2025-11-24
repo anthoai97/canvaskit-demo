@@ -38,6 +38,8 @@ export interface EventHandlerContext {
 	onResizeStartStateChange: (state: ResizeState | null) => void;
 	onRotationStartStateChange: (state: RotationState | null) => void;
 	onTransformEnd: () => void;
+	onCopy: () => void;
+	onPaste: () => void;
 }
 
 /**
@@ -408,6 +410,20 @@ export function handleMouseLeave(
  */
 export function handleKeyDown(event: KeyboardEvent, context: EventHandlerContext): void {
 	if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+		return;
+	}
+
+	// Handle Copy (Ctrl+C or Cmd+C)
+	if ((event.ctrlKey || event.metaKey) && (event.code === 'KeyC' || event.key === 'c')) {
+		event.preventDefault();
+		context.onCopy();
+		return;
+	}
+
+	// Handle Paste (Ctrl+V or Cmd+V)
+	if ((event.ctrlKey || event.metaKey) && (event.code === 'KeyV' || event.key === 'v')) {
+		event.preventDefault();
+		context.onPaste();
 		return;
 	}
 

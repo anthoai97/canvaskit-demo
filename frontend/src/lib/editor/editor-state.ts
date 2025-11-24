@@ -34,6 +34,9 @@ export interface EditorState {
 	// Auto-play state
 	isAutoPlaying: boolean;
 	wasAnimating: boolean;
+
+	// Clipboard
+	clipboard: Shape | null;
 }
 
 /**
@@ -68,7 +71,8 @@ export function createEditorState(centerX: number, centerY: number): EditorState
 		},
 
 		isAutoPlaying: false,
-		wasAnimating: false
+		wasAnimating: false,
+		clipboard: null
 	};
 }
 

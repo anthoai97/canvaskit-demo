@@ -18,7 +18,7 @@ from backend.database import SessionLocal
 from backend.seed import seed_data
 from backend.models import Document
 from backend.websocket_manager import ConnectionManager
-from backend.crud import get_document_data, get_audio_data, update_shape
+from backend.crud import get_document_data, get_audio_data, update_shape, create_shape
 
 
 @asynccontextmanager
@@ -191,6 +191,43 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     finally:
                         db.close()
             
+            elif event_type == "shape_create":
+                data = message.get("data")
+                page_id = message.get("page_id")
+                if data and page_id:
+                    db = SessionLocal()
+                    try:
+                        # Remove temporary ID if present, let DB assign one
+                        if "id" in data:
+                            del data["id"]
+                            
+                        new_shape = create_shape(db, page_id, data)
+                        if new_shape:
+                            # Broadcast to all clients (including sender, to confirm ID?)
+                            # Actually, sender already has it optimistically. 
+                            # But sender needs the REAL ID.
+                            # For now, let's broadcast to others. Sender might need a specific ack to update ID.
+                            # In this simple demo, we might just broadcast 'shape_created' to others.
+                            # The sender might reload or we can send a specific 'shape_created' back to sender with temp_id mapping?
+                            # For simplicity: Broadcast to others. Sender keeps using temp ID until reload? 
+                            # Or better: Broadcast to ALL, sender updates its shape with real ID if it matches temp ID?
+                            # But we deleted temp ID from data passed to create_shape.
+                            
+                            # Let's just broadcast to others for now.
+                            await broadcast_binary_json({
+                                "event": "shape_created",
+                                "data": new_shape
+                            }, exclude=websocket)
+                            
+                            # Send back to sender so they can update the ID
+                            await send_binary_json(websocket, {
+                                "event": "shape_created_ack",
+                                "temp_id": message.get("temp_id"), # Frontend should send this
+                                "data": new_shape
+                            })
+                    finally:
+                        db.close()
+
             else:
                 # Unknown event or plain message structure
                 # Echo back as binary

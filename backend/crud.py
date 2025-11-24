@@ -81,3 +81,48 @@ def update_shape(db: Session, shape_id: int, data: dict) -> dict | None:
         "height": shape.height,
         "rotate": shape.rotate
     }
+
+def create_shape(db: Session, page_id: str, data: dict) -> dict | None:
+    # Extract known columns
+    kind = data.get("kind", "text") # Default to text if not specified, though it should be
+    x = data.get("x", 0)
+    y = data.get("y", 0)
+    width = data.get("width", 100)
+    height = data.get("height", 100)
+    rotate = data.get("rotate", 0)
+    
+    # Everything else goes into properties
+    # We exclude the columns we already extracted to avoid duplication, 
+    # but for simplicity in this demo we can just dump everything else or specific known props.
+    # Let's filter out the main columns from properties.
+    properties = {k: v for k, v in data.items() if k not in ["id", "kind", "x", "y", "width", "height", "rotate"]}
+    
+    new_shape = Shape(
+        page_id=page_id,
+        kind=kind,
+        x=x,
+        y=y,
+        width=width,
+        height=height,
+        rotate=rotate,
+        properties=properties
+    )
+    
+    db.add(new_shape)
+    db.commit()
+    db.refresh(new_shape)
+    
+    # Return the full shape data as the frontend expects it (merged)
+    shape_dict = {
+        "id": new_shape.id,
+        "kind": new_shape.kind,
+        "x": new_shape.x,
+        "y": new_shape.y,
+        "width": new_shape.width,
+        "height": new_shape.height,
+        "rotate": new_shape.rotate,
+    }
+    if new_shape.properties:
+        shape_dict.update(new_shape.properties)
+        
+    return shape_dict

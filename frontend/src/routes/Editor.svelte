@@ -223,6 +223,7 @@
 	let resizingCorner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | null = null;
 	let resizeStartState: ResizeState | null = null;
 	let rotationStartState: RotationState | null = null;
+	let clipboard: Shape | null = null;
 
 	// ==================== Camera & Mouse State ====================
 	let cameraState = {
@@ -608,6 +609,48 @@
 						scheduleDraw();
 					}
 				}
+			} else if (message.json.event === 'shape_created') {
+				const newShape = message.json.data;
+				if (newShape && newShape.id) {
+					// Check if we already have this shape (optimistic update)
+					// Actually, for other clients, we just add it.
+					const exists = shapes.some((s) => s.id === newShape.id);
+					if (!exists) {
+						// Load image if needed
+						if (newShape.kind === 'image' && newShape.url) {
+							loadSkImage(ck, newShape.url).then((image) => {
+								if (image) {
+									newShape.image = image;
+									newShape.ratio = image.width() / image.height();
+									shapes = [...shapes, newShape];
+									scheduleDraw();
+									scheduleThumbnailCapture();
+								}
+							});
+						} else {
+							shapes = [...shapes, newShape];
+							scheduleDraw();
+							scheduleThumbnailCapture();
+						}
+					}
+				}
+			} else if (message.json.event === 'shape_created_ack') {
+				const realShape = message.json.data;
+				const tempId = message.json.temp_id;
+
+				if (realShape && tempId) {
+					const index = shapes.findIndex((s) => s.id === tempId);
+					if (index !== -1) {
+						// Update ID from temp to real
+						const shape = shapes[index];
+						shape.id = realShape.id;
+						// Update other props just in case backend sanitized something
+						shape.x = realShape.x;
+						shape.y = realShape.y;
+
+						shapes = [...shapes];
+					}
+				}
 			}
 		});
 
@@ -988,6 +1031,79 @@
 					transformationType = null;
 					clearOverlay();
 					scheduleDraw(); // Redraw main canvas with all shapes
+				}
+			},
+			onCopy: () => {
+				if (selectedShape.index !== INVALID_INDEX) {
+					const shape = shapes[selectedShape.index];
+					// Deep copy the shape data
+					const copy = JSON.parse(JSON.stringify(shape));
+
+					// Restore the image object reference for image shapes
+					// JSON.stringify destroys the WASM Image object methods
+					if (shape.kind === 'image' && shape.image) {
+						copy.image = shape.image;
+					}
+
+					clipboard = copy;
+				}
+			},
+			onPaste: () => {
+				if (clipboard) {
+					// Deep copy the clipboard data
+					const newShape = JSON.parse(JSON.stringify(clipboard));
+
+					// Restore the image object reference
+					if (clipboard.kind === 'image' && clipboard.image) {
+						newShape.image = clipboard.image;
+					}
+
+					newShape.id = Date.now() + Math.floor(Math.random() * 1000);
+					newShape.x += 20;
+					newShape.y += 20;
+
+					shapes = [...shapes, newShape];
+
+					// Select the new shape
+					selectedShape.index = shapes.length - 1;
+					selectedShape.rendered = false;
+
+					scheduleDraw();
+					scheduleThumbnailCapture();
+					debouncedSendShapeUpdate(newShape);
+
+					// Send create event to backend
+					if (ws && page) {
+						ws.send({
+							event: 'shape_create',
+							page_id: page.id,
+							temp_id: newShape.id,
+							data: {
+								kind: newShape.kind,
+								x: newShape.x,
+								y: newShape.y,
+								width: newShape.width,
+								height: newShape.height,
+								rotate: newShape.rotate,
+								// Include other properties
+								...(newShape.kind === 'text'
+									? {
+											text: newShape.text,
+											fontSize: newShape.fontSize,
+											fontFamily: newShape.fontFamily,
+											fontWeight: newShape.fontWeight,
+											fontStyle: newShape.fontStyle,
+											fontColor: newShape.fontColor,
+											fontOpacity: newShape.fontOpacity
+										}
+									: {
+											url: newShape.url,
+											ratio: newShape.ratio
+										}),
+								animation: newShape.animation
+							}
+						});
+					}
 				}
 			}
 		};
