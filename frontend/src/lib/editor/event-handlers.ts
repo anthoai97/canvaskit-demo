@@ -40,6 +40,7 @@ export interface EventHandlerContext {
 	onTransformEnd: () => void;
 	onCopy: () => void;
 	onPaste: () => void;
+	onUndo: () => void;
 }
 
 /**
@@ -410,6 +411,13 @@ export function handleMouseLeave(
  */
 export function handleKeyDown(event: KeyboardEvent, context: EventHandlerContext): void {
 	if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+		return;
+	}
+
+	// Handle Undo (Ctrl+Z or Cmd+Z)
+	if ((event.ctrlKey || event.metaKey) && (event.code === 'KeyZ' || event.key === 'z')) {
+		event.preventDefault();
+		context.onUndo();
 		return;
 	}
 

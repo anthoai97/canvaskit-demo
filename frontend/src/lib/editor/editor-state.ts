@@ -37,6 +37,9 @@ export interface EditorState {
 
 	// Clipboard
 	clipboard: Shape | null;
+
+	// History
+	history: Shape[][];
 }
 
 /**
@@ -72,7 +75,8 @@ export function createEditorState(centerX: number, centerY: number): EditorState
 
 		isAutoPlaying: false,
 		wasAnimating: false,
-		clipboard: null
+		clipboard: null,
+		history: []
 	};
 }
 
