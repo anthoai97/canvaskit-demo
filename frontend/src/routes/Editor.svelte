@@ -3,6 +3,7 @@
 	import { createWebGLSurface, initCanvasKit } from '$lib/canvakit/canvas';
 	import { createPaints, drawSelectedBorder } from '$lib/canvakit/drawing';
 	import { loadFonts, preloadFonts } from '$lib/canvakit/font';
+	import { TextEditor } from '$lib/editor/text/TextEditor';
 	import { drawTextShape } from '$lib/canvakit/text';
 	import { getShapeCenter } from '$lib/utils/transform';
 	import { DEFAULT_CAMERA_ZOOM, INVALID_INDEX } from '$lib/constants/const';
@@ -126,6 +127,7 @@
 	// ==================== Transformation State ====================
 	let transformingShapeIndex: number = INVALID_INDEX;
 	let transformationType: 'drag' | 'resize' | 'rotate' | null = null;
+	let activeTextEditor: TextEditor | null = null;
 
 	// ==================== Rendering Resources ====================
 	let paints: ReturnType<typeof createPaints> | null = null;
@@ -839,6 +841,10 @@
 		resizingCorner = null;
 		resizeStartState = null;
 		rotationStartState = null;
+		if (activeTextEditor) {
+			activeTextEditor.stop();
+			activeTextEditor = null;
+		}
 	});
 
 	// ==================== Selection & Hover Helpers ====================
@@ -976,6 +982,13 @@
 		updateCursor(context);
 	};
 
+	/**
+	 * Checks if text editing is currently active
+	 */
+	const isTextEditing = (): boolean => {
+		return activeTextEditor !== null;
+	};
+
 	// ==================== Event Handler Context ====================
 
 	/**
@@ -994,6 +1007,7 @@
 			resizeStartState,
 			rotationStartState,
 			isValidShapeIndex,
+			isTextEditing,
 			onCursorUpdate: (cursor: string) => {
 				canvasCursor = cursor;
 			},
@@ -1265,10 +1279,30 @@
 						});
 					}
 				}
+			},
+			onShapeDoubleClick: (shapeIndex: number) => {
+				const shape = shapes[shapeIndex];
+				console.log('[Editor] onShapeDoubleClick:', {
+					shapeIndex,
+					shapeKind: shape.kind,
+					hasCk: !!ck,
+					hasFontMgr: !!fontMgr,
+					hasEditor: !!editor
+				});
+
+				if (shape.kind === 'text' && ck && fontMgr) {
+					// Stop existing editor if any
+					if (activeTextEditor) {
+						console.log('[Editor] Stopping existing text editor');
+						activeTextEditor.stop();
+					}
+				}
+			},
+			onStopTextEditing: () => {
+				console.log('[Editor] onStopTextEditing');
 			}
 		};
 	};
-
 	/**
 	 * Adds current state to history
 	 */
@@ -1535,8 +1569,96 @@
 			}
 
 			wasAnimating = isAnimating;
+
+			// Draw text editor overlay on top
+			drawTextEditorOverlay();
 		} catch (error) {
 			console.error('Error rendering scene:', error);
+		}
+	};
+
+	$: if (activeTextEditor && cameraState) {
+		activeTextEditor.updateLayout(cameraState);
+	}
+
+	const drawTextEditorOverlay = () => {
+		if (!activeTextEditor || !skCanvas || !ck || !cameraState) return;
+
+		const cursorRect = activeTextEditor.getCursorRect();
+		console.log('[Editor] Got cursor rect:', cursorRect ? Array.from(cursorRect) : null);
+
+		if (cursorRect) {
+			skCanvas.save();
+			console.log('[Editor] Canvas saved, applying transformations');
+
+			// Apply camera transformations
+			skCanvas.scale(devicePixelRatioValue, devicePixelRatioValue);
+			skCanvas.translate(cameraState.panX, cameraState.panY);
+			skCanvas.scale(cameraState.zoom, cameraState.zoom);
+
+			console.log('[Editor] Camera transforms applied:', {
+				devicePixelRatio: devicePixelRatioValue,
+				panX: cameraState.panX,
+				panY: cameraState.panY,
+				zoom: cameraState.zoom
+			});
+
+			if (selectedShape.index !== INVALID_INDEX) {
+				const shape = shapes[selectedShape.index];
+				console.log('[Editor] Selected shape:', {
+					kind: shape.kind,
+					x: shape.x,
+					y: shape.y,
+					rotate: shape.rotate
+				});
+
+				if (shape.kind === 'text') {
+					const center = getShapeCenter(shape);
+
+					// Apply shape rotation
+					if (shape.rotate) {
+						skCanvas.translate(center.x, center.y);
+						skCanvas.rotate(shape.rotate, 0, 0);
+						skCanvas.translate(-center.x, -center.y);
+					}
+
+					// Translate to shape position (top-left)
+					skCanvas.translate(shape.x, shape.y);
+
+					console.log(
+						'[Editor] After all transforms, drawing cursor at shape-relative coords:',
+						Array.from(cursorRect)
+					);
+					console.log('[Editor] Shape world position:', { x: shape.x, y: shape.y });
+					console.log('[Editor] Final screen position (approx):', {
+						x: (shape.x + cursorRect[0]) * cameraState.zoom + cameraState.panX,
+						y: (shape.y + cursorRect[1]) * cameraState.zoom + cameraState.panY
+					});
+
+					// Draw cursor
+					const paint = new ck.Paint();
+					paint.setColor(ck.BLACK); // Black cursor
+					paint.setStyle(ck.PaintStyle.Fill);
+
+					console.log('[Editor] Drawing cursor rect:', Array.from(cursorRect));
+
+					// Cursor rect is [left, top, right, bottom]
+					// We might want to make it a bit wider or ensure it's visible
+					skCanvas.drawRect(cursorRect, paint);
+					paint.delete();
+
+					console.log('[Editor] Cursor drawn successfully');
+				}
+			}
+
+			skCanvas.restore();
+			console.log('[Editor] Canvas restored');
+		}
+
+		// Flush to ensure cursor is visible
+		if (surface) {
+			surface.flush();
+			console.log('[Editor] Surface flushed');
 		}
 	};
 

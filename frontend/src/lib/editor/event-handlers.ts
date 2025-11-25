@@ -26,6 +26,7 @@ export interface EventHandlerContext {
 	resizeStartState: ResizeState | null;
 	rotationStartState: RotationState | null;
 	isValidShapeIndex: (index: number) => boolean;
+	isTextEditing: () => boolean;
 	onCursorUpdate: (cursor: string) => void;
 	onScheduleDraw: () => void;
 	onPanning: (deltaX: number, deltaY: number) => void;
@@ -42,6 +43,8 @@ export interface EventHandlerContext {
 	onPaste: () => void;
 	onUndo: () => void;
 	onDelete: () => void;
+	onShapeDoubleClick: (shapeIndex: number) => void;
+	onStopTextEditing: () => void;
 }
 
 
@@ -354,6 +357,15 @@ export function handleMouseDown(event: MouseEvent, context: EventHandlerContext)
 	}
 
 	context.onScheduleDraw();
+
+	// Check for double click
+	const now = Date.now();
+	if (context.mouseState.lastClickTime && now - context.mouseState.lastClickTime < 300) {
+		if (context.isValidShapeIndex(clickedShapeIndex)) {
+			context.onShapeDoubleClick(clickedShapeIndex);
+		}
+	}
+	context.mouseState.lastClickTime = now;
 }
 
 /**
@@ -419,6 +431,10 @@ export function handleKeyDown(event: KeyboardEvent, context: EventHandlerContext
 
 	// Handle Delete or Backspace
 	if (event.code === 'Delete' || event.key === 'Delete' || event.code === 'Backspace' || event.key === 'Backspace') {
+		// Don't delete shape if we're editing text
+		if (context.isTextEditing()) {
+			return; // Let the text editor handle it
+		}
 		event.preventDefault();
 		context.onDelete();
 		return;
@@ -452,7 +468,12 @@ export function handleKeyDown(event: KeyboardEvent, context: EventHandlerContext
 	}
 
 	if (event.code === 'Escape' || event.key === 'Escape') {
-		context.onSelectionClear();
+		// Stop text editing if active
+		if (context.isTextEditing()) {
+			context.onStopTextEditing();
+		} else {
+			context.onSelectionClear();
+		}
 	}
 }
 
