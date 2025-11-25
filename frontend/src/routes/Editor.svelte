@@ -4,7 +4,7 @@
 	import { createPaints, drawSelectedBorder } from '$lib/canvakit/drawing';
 	import { loadFonts, preloadFonts } from '$lib/canvakit/font';
 	import { TextEditor } from '$lib/editor/text/TextEditor';
-	import { drawTextShape } from '$lib/canvakit/text';
+	import { drawTextShape, calculateFitFontSize } from '$lib/canvakit/text';
 	import { getShapeCenter } from '$lib/utils/transform';
 	import {
 		DEFAULT_CAMERA_ZOOM,
@@ -224,16 +224,34 @@
 	// If another update comes for the same shape (or any shape in this simple impl), restart timer.
 	const debouncedSendShapeUpdate = debounce((shape: Shape) => {
 		if (!shape.id) return;
+
+		const baseData = {
+			id: shape.id,
+			x: shape.x,
+			y: shape.y,
+			width: shape.width,
+			height: shape.height,
+			rotate: shape.rotate
+		};
+
+		// Add text-specific fields if it's a text shape
+		const data =
+			shape.kind === 'text'
+				? {
+						...baseData,
+						text: shape.text,
+						fontSize: shape.fontSize,
+						fontFamily: shape.fontFamily,
+						fontWeight: shape.fontWeight,
+						fontStyle: shape.fontStyle,
+						fontColor: shape.fontColor,
+						fontOpacity: shape.fontOpacity
+					}
+				: baseData;
+
 		ws?.send({
 			event: 'shape_update',
-			data: {
-				id: shape.id,
-				x: shape.x,
-				y: shape.y,
-				width: shape.width,
-				height: shape.height,
-				rotate: shape.rotate
-			}
+			data
 		});
 	}, 150);
 
@@ -1076,10 +1094,18 @@
 					addToHistory();
 				}
 				const shape = shapes[shapeIndex];
+
+				// Apply resize dimensions
 				shape.x = x;
 				shape.y = y;
 				shape.width = width;
 				shape.height = height;
+
+				// Auto-fit font size for text shapes
+				if (shape.kind === 'text' && ck && fontMgr) {
+					const newFontSize = calculateFitFontSize(ck, fontMgr, shape.text, width, height);
+					shape.fontSize = newFontSize;
+				}
 
 				// Set transformation state
 				transformingShapeIndex = shapeIndex;
@@ -1314,7 +1340,7 @@
 					}
 				}
 			},
-			onShapeDoubleClick: (shapeIndex: number) => {
+			onShapeDoubleClick: (shapeIndex: number, worldX: number, worldY: number) => {
 				const shape = shapes[shapeIndex];
 
 				if (shape.kind !== 'text' || !ck || !fontMgr || !editor) {
@@ -1335,23 +1361,38 @@
 
 				const textShape: TextShape = shape;
 
-				const newTextEditor = new TextEditor(ck, fontMgr, textShape, editor, cameraState, {
-					onUpdate: (updatedText: string) => {
-						textShape.text = updatedText;
-						shapes = [...shapes];
-						scheduleDraw();
-						if (updateShapesHash()) {
-							scheduleThumbnailCapture();
+				// Calculate click position relative to shape's top-left corner
+				const relativeX = worldX - textShape.x;
+				const relativeY = worldY - textShape.y;
+
+				const newTextEditor = new TextEditor(
+					ck,
+					fontMgr,
+					textShape,
+					editor,
+					cameraState,
+					{
+						onUpdate: (updatedText: string) => {
+							textShape.text = updatedText;
+							shapes = [...shapes];
+							scheduleDraw();
+							if (updateShapesHash()) {
+								scheduleThumbnailCapture();
+							}
+							// Sync text changes to backend
+							debouncedSendShapeUpdate(textShape);
+						},
+						onStop: () => {
+							activeTextEditor = null;
+							scheduleDraw();
+						},
+						onCursorMove: () => {
+							scheduleDraw();
 						}
 					},
-					onStop: () => {
-						activeTextEditor = null;
-						scheduleDraw();
-					},
-					onCursorMove: () => {
-						scheduleDraw();
-					}
-				});
+					relativeX,
+					relativeY
+				);
 
 				activeTextEditor = newTextEditor;
 				scheduleDraw();

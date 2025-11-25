@@ -57,6 +57,7 @@ def update_shape(db: Session, shape_id: int, data: dict) -> dict | None:
     if not shape:
         return None
     
+    # Update geometry fields
     if "x" in data:
         shape.x = data["x"]
     if "y" in data:
@@ -67,13 +68,27 @@ def update_shape(db: Session, shape_id: int, data: dict) -> dict | None:
         shape.height = data["height"]
     if "rotate" in data:
         shape.rotate = data["rotate"]
+    
+    # Update properties (text-specific fields and other custom properties)
+    # Extract properties that aren't the main columns
+    properties = {k: v for k, v in data.items() if k not in ["id", "x", "y", "width", "height", "rotate"]}
+    
+    if properties:
+        # Merge with existing properties to preserve other fields
+        if shape.properties:
+            shape.properties.update(properties)
+        else:
+            shape.properties = properties
         
-    # Update other properties if needed, but for now focusing on geometry
+        # IMPORTANT: Flag the JSON field as modified so SQLAlchemy detects the change
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(shape, "properties")
     
     db.commit()
     db.refresh(shape)
     
-    return {
+    # Return full shape data including properties
+    result = {
         "id": shape.id,
         "x": shape.x,
         "y": shape.y,
@@ -81,6 +96,12 @@ def update_shape(db: Session, shape_id: int, data: dict) -> dict | None:
         "height": shape.height,
         "rotate": shape.rotate
     }
+    
+    # Include properties in response
+    if shape.properties:
+        result.update(shape.properties)
+    
+    return result
 
 def create_shape(db: Session, page_id: str, data: dict) -> dict | None:
     # Extract known columns

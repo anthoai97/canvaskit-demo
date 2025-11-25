@@ -43,7 +43,7 @@ export interface EventHandlerContext {
 	onPaste: () => void;
 	onUndo: () => void;
 	onDelete: () => void;
-	onShapeDoubleClick: (shapeIndex: number) => void;
+	onShapeDoubleClick: (shapeIndex: number, worldX: number, worldY: number) => void;
 	onStopTextEditing: () => void;
 }
 
@@ -362,7 +362,7 @@ export function handleMouseDown(event: MouseEvent, context: EventHandlerContext)
 	const now = Date.now();
 	if (context.mouseState.lastClickTime && now - context.mouseState.lastClickTime < 300) {
 		if (context.isValidShapeIndex(clickedShapeIndex)) {
-			context.onShapeDoubleClick(clickedShapeIndex);
+			context.onShapeDoubleClick(clickedShapeIndex, worldPos.x, worldPos.y);
 		}
 	}
 	context.mouseState.lastClickTime = now;

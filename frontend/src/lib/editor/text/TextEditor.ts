@@ -3,6 +3,7 @@ import type { TextShape } from '$lib/types/shape';
 import { PhantomTextArea } from './PhantomTextArea';
 import { TextModel } from './TextModel';
 import { fontFamilies } from '$lib/constants/const';
+import { calculateTextDimensions } from '$lib/canvakit/text';
 
 import type { CameraState } from '$lib/types/camera';
 
@@ -23,20 +24,33 @@ export class TextEditor {
 	private cursorIndex: number = 0;
 	private selectionStart: number | null = null; // For future selection support
 
+	// Undo history - stores text and cursor position
+	private textHistory: Array<{ text: string; cursorIndex: number }> = [];
+	private historyIndex: number = -1;
+	private readonly MAX_HISTORY = 30;
+
 	constructor(
 		ck: CanvasKit,
 		fontMgr: FontMgr,
 		shape: TextShape,
 		container: HTMLElement,
 		cameraState: CameraState,
-		callbacks: TextEditorEvents
+		callbacks: TextEditorEvents,
+		clickX?: number,
+		clickY?: number
 	) {
 		this.ck = ck;
 		this.fontMgr = fontMgr;
 		this.shape = shape;
 		this.callbacks = callbacks;
 		this.model = new TextModel(shape.text);
-		this.cursorIndex = shape.text.length; // Start cursor at end
+
+		// Set initial cursor position based on click location if provided
+		if (clickX !== undefined && clickY !== undefined) {
+			this.cursorIndex = this.getCursorIndexFromPoint(clickX, clickY);
+		} else {
+			this.cursorIndex = shape.text.length; // Default: start cursor at end
+		}
 
 		this.phantom = new PhantomTextArea(container);
 		this.phantom.addEventListener('insert', (e) => this.handleInsert(e.text));
@@ -45,6 +59,10 @@ export class TextEditor {
 		this.phantom.addEventListener('left', () => this.moveCursor(-1));
 		this.phantom.addEventListener('right', () => this.moveCursor(1));
 		this.phantom.addEventListener('enter', () => this.handleInsert('\n'));
+		this.phantom.addEventListener('undo', () => this.handleUndo());
+
+		// Initialize history with current text
+		this.saveHistory();
 
 		// Initial layout
 		this.updateLayout(cameraState);
@@ -64,6 +82,7 @@ export class TextEditor {
 	}
 
 	private handleInsert(text: string) {
+		this.saveHistory();
 		const [newModel, newPos] = this.model.insert(this.cursorIndex, text);
 		this.model = newModel;
 		this.cursorIndex = newPos;
@@ -72,6 +91,7 @@ export class TextEditor {
 
 	private handleBackspace() {
 		if (this.cursorIndex > 0) {
+			this.saveHistory();
 			const [newModel, newPos] = this.model.deleteBackward(this.cursorIndex);
 			this.model = newModel;
 			this.cursorIndex = newPos;
@@ -81,6 +101,7 @@ export class TextEditor {
 
 	private handleDelete() {
 		if (this.cursorIndex < this.model.text.length) {
+			this.saveHistory();
 			const [newModel, newPos] = this.model.deleteForward(this.cursorIndex);
 			this.model = newModel;
 			this.cursorIndex = newPos;
@@ -96,6 +117,17 @@ export class TextEditor {
 
 	private updateShape() {
 		this.shape.text = this.model.text;
+
+		// Auto-adjust shape dimensions to fit text at current font size
+		const { width, height } = calculateTextDimensions(
+			this.ck,
+			this.fontMgr,
+			this.model.text,
+			this.shape.fontSize
+		);
+
+		this.shape.width = width;
+		this.shape.height = height;
 		this.callbacks.onUpdate(this.model.text);
 	}
 
@@ -186,5 +218,83 @@ export class TextEditor {
 
 		paragraph.delete();
 		return cursorRect;
+	}
+
+	/**
+	 * Gets the cursor index from a point (x, y) relative to the shape's top-left corner
+	 */
+	private getCursorIndexFromPoint(x: number, y: number): number {
+		const paragraph = this.buildParagraph();
+
+		// Get the glyph position at the clicked coordinate
+		const glyphInfo = paragraph.getGlyphPositionAtCoordinate(x, y);
+
+		console.log('[TextEditor] getCursorIndexFromPoint:', {
+			x,
+			y,
+			glyphInfo,
+			textLength: this.model.text.length
+		});
+
+		paragraph.delete();
+
+		// glyphInfo.pos gives us the character position
+		if (glyphInfo && glyphInfo.pos !== undefined) {
+			// Clamp to valid range
+			return this.model.clampPosition(glyphInfo.pos);
+		}
+
+		// Fallback to end of text if we can't determine position
+		return this.model.text.length;
+	}
+
+	/**
+	 * Public method to set cursor position from a click point
+	 */
+	public setCursorFromPoint(x: number, y: number): void {
+		this.cursorIndex = this.getCursorIndexFromPoint(x, y);
+		this.callbacks.onCursorMove();
+	}
+
+	/**
+	 * Saves current text state to history
+	 */
+	private saveHistory(): void {
+		// Remove any history after current index (when user types after undo)
+		this.textHistory = this.textHistory.slice(0, this.historyIndex + 1);
+
+		// Add current state (text + cursor position)
+		this.textHistory.push({
+			text: this.model.text,
+			cursorIndex: this.cursorIndex
+		});
+
+		// Limit history size
+		if (this.textHistory.length > this.MAX_HISTORY) {
+			this.textHistory.shift();
+		} else {
+			this.historyIndex++;
+		}
+	}
+
+	/**
+	 * Handles undo operation
+	 */
+	private handleUndo(): void {
+		if (this.historyIndex > 0) {
+			this.historyIndex--;
+			const previousState = this.textHistory[this.historyIndex];
+
+			this.model = new TextModel(previousState.text);
+			this.cursorIndex = this.model.clampPosition(previousState.cursorIndex);
+			this.updateShape();
+			this.callbacks.onCursorMove(); // Trigger cursor redraw
+
+			console.log('[TextEditor] Undo:', {
+				historyIndex: this.historyIndex,
+				restoredText: previousState.text,
+				restoredCursor: previousState.cursorIndex
+			});
+		}
 	}
 }

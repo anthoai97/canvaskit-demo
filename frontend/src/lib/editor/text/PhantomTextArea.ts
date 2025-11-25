@@ -9,6 +9,7 @@ export type PhantomTextAreaEventMap = {
 	left: { type: "left" };
 	right: { type: "right" };
 	enter: { type: "enter" };
+	undo: { type: "undo" };
 };
 
 export class PhantomTextArea extends TypedEventTarget<PhantomTextAreaEventMap> {
@@ -76,6 +77,13 @@ export class PhantomTextArea extends TypedEventTarget<PhantomTextAreaEventMap> {
 			}
 		});
 		this._element.addEventListener("keydown", (e) => {
+			// Handle Ctrl+Z / Cmd+Z for undo
+			if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+				e.preventDefault();
+				this.dispatchEvent({ type: "undo" });
+				return;
+			}
+
 			switch (e.key) {
 				case "Backspace":
 					this.dispatchEvent({ type: "backspace" });
