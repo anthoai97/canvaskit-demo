@@ -69,130 +69,6 @@
 	let exportCurrentPage = 0;
 	let exportTotalPages = 0;
 
-	const getExportSize = (resolution: ExportResolution) => {
-		switch (resolution) {
-			case '720p':
-				return { width: 1280, height: 720 };
-			case '2k':
-				return { width: 2560, height: 1440 };
-			case '1080p':
-			default:
-				return { width: 1920, height: 1080 };
-		}
-	};
-
-	const handleAudioSelect = async (event: Event) => {
-		const target = event.target as HTMLSelectElement;
-		selectedAudioUrl = target.value;
-		if (selectedAudioUrl) {
-			try {
-				const response = await fetch(selectedAudioUrl);
-				audioBlob = await response.blob();
-			} catch (error) {
-				console.error('Failed to fetch audio:', error);
-				audioBlob = null;
-			}
-		} else {
-			audioBlob = null;
-		}
-	};
-
-	const finishRecording = async () => {
-		if (!isRecording) return;
-
-		// Stop recording loop immediately
-		isRecording = false;
-		isExporting = true;
-
-		try {
-			// Stop Recording
-			const blob = await recorder.stop(recordingTimeSec);
-			recordingLastTimestamp = null;
-
-			// Reset progress tracking
-			exportProgress = 0;
-			exportCurrentPage = 0;
-			exportTotalPages = 0;
-
-			// Clean up recording surface
-			if (recordingSurface) {
-				recordingSurface.delete();
-				recordingSurface = null;
-				recordingSkCanvas = null;
-			}
-
-			// Stop animation if it was playing
-			if (isAutoPlaying) toggleAutoPlay();
-
-			// Download the file
-			const url = URL.createObjectURL(blob);
-			const a = window.document.createElement('a');
-			a.href = url;
-			// Determine extension based on MIME type (usually webm or mp4)
-			const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
-			a.download = `canvas-export.${ext}`;
-			window.document.body.appendChild(a);
-			a.click();
-			window.document.body.removeChild(a);
-			URL.revokeObjectURL(url);
-		} finally {
-			isExporting = false;
-		}
-	};
-
-	const toggleRecording = async () => {
-		if (isRecording) {
-			await finishRecording();
-		} else {
-			if (!page || !ck) return;
-
-			// Setup recording canvas
-			const { width, height } = getExportSize(exportResolution);
-			recordingCanvas.width = width;
-			recordingCanvas.height = height;
-
-			// Initialize recording surface
-			recordingSurface = createWebGLSurface(ck, recordingCanvas);
-			if (!recordingSurface) {
-				console.error('Failed to create recording surface');
-				return;
-			}
-			recordingSkCanvas = recordingSurface.getCanvas();
-
-			// Prepare & start recorder
-			recordingTimeSec = 0;
-			recordingLastTimestamp = null;
-
-			// Snapshot document for independent recording
-			recordingDocument = {
-				...document!,
-				pages: document!.pages.map((p) => ({
-					...p,
-					shapes: p.shapes.map((s) => {
-						// Explicitly copy the image property for ImageShape to preserve loaded images
-						if (s.kind === 'image') {
-							return { ...s, image: s.image };
-						}
-						return { ...s };
-					})
-				}))
-			};
-			recordingPageIndex = 0;
-			recordingPageStartTimestamp = null;
-			recordingWasAnimating = false;
-
-			// Initialize progress tracking
-			exportProgress = 0;
-			exportCurrentPage = 1;
-			exportTotalPages = recordingDocument.pages.length;
-
-			await recorder.prepare(recordingCanvas, width, height, audioBlob || undefined);
-			await recorder.start();
-			isRecording = true;
-			recordLoop();
-		}
-	};
-
 	// ==================== CanvasKit State ====================
 	let ck: CanvasKit;
 	let surface: Surface | null = null;
@@ -806,6 +682,133 @@
 
 		cleanupEvents = bindEvents();
 		drawScene();
+	};
+
+	const getExportSize = (resolution: ExportResolution) => {
+		switch (resolution) {
+			case '720p':
+				return { width: 1280, height: 720 };
+			case '2k':
+				return { width: 2560, height: 1440 };
+			case '1080p':
+			default:
+				return { width: 1920, height: 1080 };
+		}
+	};
+
+	const handleAudioSelect = async (event: Event) => {
+		const target = event.target as HTMLSelectElement;
+		selectedAudioUrl = target.value;
+		if (selectedAudioUrl) {
+			try {
+				const response = await fetch(selectedAudioUrl);
+				audioBlob = await response.blob();
+			} catch (error) {
+				console.error('Failed to fetch audio:', error);
+				audioBlob = null;
+			}
+		} else {
+			audioBlob = null;
+		}
+	};
+
+	const finishRecording = async () => {
+		if (!isRecording) return;
+
+		// Stop recording loop immediately
+		isRecording = false;
+		isExporting = true;
+
+		try {
+			// Stop Recording
+			const blob = await recorder.stop(recordingTimeSec);
+			recordingLastTimestamp = null;
+
+			// Reset progress tracking
+			exportProgress = 0;
+			exportCurrentPage = 0;
+			exportTotalPages = 0;
+
+			// Clean up recording surface
+			if (recordingSurface) {
+				recordingSurface.delete();
+				recordingSurface = null;
+				recordingSkCanvas = null;
+			}
+
+			// Stop animation if it was playing
+			if (isAutoPlaying) toggleAutoPlay();
+
+			// Download the file
+			const url = URL.createObjectURL(blob);
+			const a = window.document.createElement('a');
+			a.href = url;
+			// Determine extension based on MIME type (usually webm or mp4)
+			const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+			a.download = `canvas-export.${ext}`;
+			window.document.body.appendChild(a);
+			a.click();
+			window.document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		} finally {
+			isExporting = false;
+		}
+	};
+
+	const toggleRecording = async () => {
+		if (isRecording) {
+			await finishRecording();
+		} else {
+			if (!page || !ck) return;
+
+			// Setup recording canvas
+			const { width, height } = getExportSize(exportResolution);
+			recordingCanvas.width = width;
+			recordingCanvas.height = height;
+
+			// Initialize recording surface
+			recordingSurface = createWebGLSurface(ck, recordingCanvas);
+			if (!recordingSurface) {
+				console.error('Failed to create recording surface');
+				return;
+			}
+			recordingSkCanvas = recordingSurface.getCanvas();
+
+			// Prepare & start recorder
+			recordingTimeSec = 0;
+			recordingLastTimestamp = null;
+
+			// Snapshot document for independent recording
+			recordingDocument = {
+				...document,
+				pages: document!.pages.map((p) => ({
+					...p,
+					shapes:
+						shapes != null
+							? shapes
+							: p.shapes.map((s) => ({
+									...s,
+									id: undefined
+								}))
+				}))
+			};
+
+			console.log('Recording document:', recordingDocument.pages);
+
+			recordingPageIndex = 0;
+			recordingPageStartTimestamp = null;
+			recordingWasAnimating = false;
+
+			// Initialize progress tracking
+			exportProgress = 0;
+			exportCurrentPage = 1;
+			exportTotalPages = recordingDocument.pages.length;
+
+			await recorder.prepare(recordingCanvas, width, height, audioBlob || undefined);
+			await recorder.start();
+			isRecording = true;
+			recordLoop();
+		}
 	};
 
 	onMount(initializeEditor);
