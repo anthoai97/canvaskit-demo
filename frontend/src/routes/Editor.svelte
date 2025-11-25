@@ -6,13 +6,18 @@
 	import { TextEditor } from '$lib/editor/text/TextEditor';
 	import { drawTextShape } from '$lib/canvakit/text';
 	import { getShapeCenter } from '$lib/utils/transform';
-	import { DEFAULT_CAMERA_ZOOM, INVALID_INDEX } from '$lib/constants/const';
+	import {
+		DEFAULT_CAMERA_ZOOM,
+		INVALID_INDEX,
+		MAX_CAMERA_ZOOM,
+		MIN_CAMERA_ZOOM
+	} from '$lib/constants/const';
 	import { CanvasKitWebSocket, type BinaryMessage } from '$lib/ws';
 	import { env } from '$env/dynamic/public';
 	import { resetSelectedShape, type ResizeState, type RotationState } from '$lib/types/editor';
 	import { resetHoverState } from '$lib/utils/hover-state';
 	import type { EditorDocument, EditorPage } from '$lib/types/page';
-	import type { Shape } from '$lib/types/shape';
+	import type { Shape, TextShape } from '$lib/types/shape';
 	import type { Canvas, CanvasKit, Paint, Surface, FontMgr } from 'canvaskit-wasm';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { createDefaultDocument, loadPageImages } from '$lib/editor/document-loader';
@@ -65,7 +70,6 @@
 	let recordingDocument: EditorDocument | null = null;
 	let recordingPageIndex = 0;
 	let recordingPageStartTimestamp: number | null = null;
-	let recordingWasAnimating = false;
 	let exportProgress = 0; // Export progress percentage (0-100)
 	let exportCurrentPage = 0;
 	let exportTotalPages = 0;
@@ -110,6 +114,26 @@
 	let history: Shape[][] = [];
 
 	// ==================== Camera & Mouse State ====================
+	const INITIAL_PAGE_VIEW_RATIO = 0.7;
+
+	const calculateInitialZoom = (page: EditorPage | null) => {
+		if (!page || !canvasWidth || !canvasHeight) {
+			return DEFAULT_CAMERA_ZOOM;
+		}
+
+		const widthScale = (canvasWidth * INITIAL_PAGE_VIEW_RATIO) / page.width;
+		const heightScale = (canvasHeight * INITIAL_PAGE_VIEW_RATIO) / page.height;
+		const fitZoom = Math.min(widthScale, heightScale);
+
+		if (!Number.isFinite(fitZoom) || fitZoom <= 0) {
+			return DEFAULT_CAMERA_ZOOM;
+		}
+
+		return Math.max(MIN_CAMERA_ZOOM, Math.min(MAX_CAMERA_ZOOM, fitZoom));
+	};
+
+	let isInitialZoomSet = false;
+
 	let cameraState = {
 		zoom: DEFAULT_CAMERA_ZOOM,
 		panX: 0,
@@ -321,6 +345,10 @@
 		// Reset camera to center
 		cameraState.panX = centerX;
 		cameraState.panY = centerY;
+		if (!isInitialZoomSet) {
+			cameraState.zoom = calculateInitialZoom(page);
+			isInitialZoomSet = true;
+		}
 
 		// Clear selection
 		resetSelectedShape(selectedShape);
@@ -799,7 +827,6 @@
 
 			recordingPageIndex = 0;
 			recordingPageStartTimestamp = null;
-			recordingWasAnimating = false;
 
 			// Initialize progress tracking
 			exportProgress = 0;
@@ -869,10 +896,16 @@
 		}
 	};
 
+	const stopTextEditing = () => {
+		if (!activeTextEditor) return;
+		activeTextEditor.stop();
+	};
+
 	/**
 	 * Clears selection state
 	 */
 	const clearSelection = () => {
+		stopTextEditing();
 		resetSelectedShape(selectedShape);
 		resetHoverState(hoverState);
 		resizingCorner = null;
@@ -1084,6 +1117,7 @@
 				}
 			},
 			onSelectionChange: (shapeIndex: number) => {
+				stopTextEditing();
 				selectedShape.index = shapeIndex;
 				selectedShape.rendered = false;
 			},
@@ -1282,24 +1316,49 @@
 			},
 			onShapeDoubleClick: (shapeIndex: number) => {
 				const shape = shapes[shapeIndex];
-				console.log('[Editor] onShapeDoubleClick:', {
-					shapeIndex,
-					shapeKind: shape.kind,
-					hasCk: !!ck,
-					hasFontMgr: !!fontMgr,
-					hasEditor: !!editor
+
+				if (shape.kind !== 'text' || !ck || !fontMgr || !editor) {
+					return;
+				}
+
+				// Stop existing editor if any before starting a new session
+				if (activeTextEditor) {
+					activeTextEditor.stop();
+				}
+
+				// Ensure the shape is selected so handles appear while editing
+				selectedShape.index = shapeIndex;
+				selectedShape.rendered = false;
+
+				// Capture state for undo before mutating text
+				addToHistory();
+
+				const textShape: TextShape = shape;
+
+				const newTextEditor = new TextEditor(ck, fontMgr, textShape, editor, cameraState, {
+					onUpdate: (updatedText: string) => {
+						textShape.text = updatedText;
+						shapes = [...shapes];
+						scheduleDraw();
+						if (updateShapesHash()) {
+							scheduleThumbnailCapture();
+						}
+					},
+					onStop: () => {
+						activeTextEditor = null;
+						scheduleDraw();
+					},
+					onCursorMove: () => {
+						scheduleDraw();
+					}
 				});
 
-				if (shape.kind === 'text' && ck && fontMgr) {
-					// Stop existing editor if any
-					if (activeTextEditor) {
-						console.log('[Editor] Stopping existing text editor');
-						activeTextEditor.stop();
-					}
-				}
+				activeTextEditor = newTextEditor;
+				scheduleDraw();
 			},
 			onStopTextEditing: () => {
 				console.log('[Editor] onStopTextEditing');
+				stopTextEditing();
 			}
 		};
 	};
@@ -1585,32 +1644,17 @@
 		if (!activeTextEditor || !skCanvas || !ck || !cameraState) return;
 
 		const cursorRect = activeTextEditor.getCursorRect();
-		console.log('[Editor] Got cursor rect:', cursorRect ? Array.from(cursorRect) : null);
 
 		if (cursorRect) {
 			skCanvas.save();
-			console.log('[Editor] Canvas saved, applying transformations');
 
 			// Apply camera transformations
 			skCanvas.scale(devicePixelRatioValue, devicePixelRatioValue);
 			skCanvas.translate(cameraState.panX, cameraState.panY);
 			skCanvas.scale(cameraState.zoom, cameraState.zoom);
 
-			console.log('[Editor] Camera transforms applied:', {
-				devicePixelRatio: devicePixelRatioValue,
-				panX: cameraState.panX,
-				panY: cameraState.panY,
-				zoom: cameraState.zoom
-			});
-
 			if (selectedShape.index !== INVALID_INDEX) {
 				const shape = shapes[selectedShape.index];
-				console.log('[Editor] Selected shape:', {
-					kind: shape.kind,
-					x: shape.x,
-					y: shape.y,
-					rotate: shape.rotate
-				});
 
 				if (shape.kind === 'text') {
 					const center = getShapeCenter(shape);
@@ -1625,40 +1669,24 @@
 					// Translate to shape position (top-left)
 					skCanvas.translate(shape.x, shape.y);
 
-					console.log(
-						'[Editor] After all transforms, drawing cursor at shape-relative coords:',
-						Array.from(cursorRect)
-					);
-					console.log('[Editor] Shape world position:', { x: shape.x, y: shape.y });
-					console.log('[Editor] Final screen position (approx):', {
-						x: (shape.x + cursorRect[0]) * cameraState.zoom + cameraState.panX,
-						y: (shape.y + cursorRect[1]) * cameraState.zoom + cameraState.panY
-					});
-
 					// Draw cursor
 					const paint = new ck.Paint();
-					paint.setColor(ck.BLACK); // Black cursor
+					paint.setColor(ck.WHITE); // Black cursor
 					paint.setStyle(ck.PaintStyle.Fill);
-
-					console.log('[Editor] Drawing cursor rect:', Array.from(cursorRect));
 
 					// Cursor rect is [left, top, right, bottom]
 					// We might want to make it a bit wider or ensure it's visible
 					skCanvas.drawRect(cursorRect, paint);
 					paint.delete();
-
-					console.log('[Editor] Cursor drawn successfully');
 				}
 			}
 
 			skCanvas.restore();
-			console.log('[Editor] Canvas restored');
 		}
 
 		// Flush to ensure cursor is visible
 		if (surface) {
 			surface.flush();
-			console.log('[Editor] Surface flushed');
 		}
 	};
 

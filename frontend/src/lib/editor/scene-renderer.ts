@@ -274,7 +274,7 @@ export function drawScene(context: RenderContext, onScheduleDraw: () => void, ti
 	if (!skCanvas || !ck || !paints || !lowOpacityPaint || !pageBounds || !fontMgr) return false;
 
 	if (!dirtyBounds) {
-		skCanvas.clear(ck.Color(0, 0, 0, 1.0));
+		skCanvas.clear(ck.Color(245, 245, 245, 1.0));
 	}
 
 	skCanvas.save();
