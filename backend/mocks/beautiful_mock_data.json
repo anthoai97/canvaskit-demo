@@ -1,5 +1,5 @@
 {
-	"id": "1",
+	"id": "3",
 	"pages": [
 		{
 			"id": "1",
@@ -20,7 +20,7 @@
 					"y": -520,
 					"width": 980,
 					"height": 120,
-					"text": "Welcome to CanvasKit Editor",
+					"text": "Welcome to the Graphic Editor Demo",
 					"fontSize": 72,
 					"fontFamily": "Noto Sans",
 					"fontWeight": 700,

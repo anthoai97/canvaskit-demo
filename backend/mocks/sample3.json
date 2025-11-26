@@ -1,0 +1,423 @@
+{
+  "id": "1",
+  "pages": [
+    {
+      "id": "4",
+      "width": 1920,
+      "height": 1080,
+      "background": {
+        "color": {
+          "r": 5,
+          "g": 5,
+          "b": 10,
+          "a": 1.0
+        }
+      },
+      "shapes": [
+        {
+          "kind": "text",
+          "x": -303,
+          "y": -480,
+          "width": 607,
+          "height": 78,
+          "text": "VELOCITY GT",
+          "fontSize": 90,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 900,
+          "fontStyle": "normal",
+          "fontColor": "#FCD34D",
+          "fontOpacity": 1,
+          "rotate": 0,
+          "animation": {
+            "type": "raise",
+            "duration": 1000,
+            "delay": 0
+          }
+        },
+        {
+          "kind": "text",
+          "x": -279,
+          "y": -360,
+          "width": 558,
+          "height": 41,
+          "text": "Redefining Performance & Luxury",
+          "fontSize": 32,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 300,
+          "fontStyle": "normal",
+          "fontColor": "#E2E8F0",
+          "fontOpacity": 0.9,
+          "rotate": 0,
+          "animation": {
+            "type": "fade",
+            "duration": 1000,
+            "delay": 400
+          }
+        },
+        {
+          "kind": "image",
+          "x": -750,
+          "y": -150,
+          "width": 500,
+          "height": 350,
+          "ratio": 0,
+          "url": "https://images.unsplash.com/photo-1580273916550-e323be2ae537?w=1600",
+          "image": null,
+          "rotate": -1,
+          "animation": {
+            "type": "pan",
+            "duration": 1200,
+            "delay": 800,
+            "direction": "left"
+          }
+        },
+        {
+          "kind": "text",
+          "x": -689,
+          "y": 230,
+          "width": 379,
+          "height": 43,
+          "text": "Aerodynamic Artistry",
+          "fontSize": 34,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 700,
+          "fontStyle": "normal",
+          "fontColor": "#FFFFFF",
+          "fontOpacity": 1,
+          "rotate": -1,
+          "animation": {
+            "type": "raise",
+            "duration": 800,
+            "delay": 1600
+          }
+        },
+        {
+          "kind": "text",
+          "x": -756,
+          "y": 290,
+          "width": 513,
+          "height": 48,
+          "text": "Sculpted curves designed to slice through the air\n with minimal resistance.",
+          "fontSize": 20,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 400,
+          "fontStyle": "normal",
+          "fontColor": "#94A3B8",
+          "fontOpacity": 0.9,
+          "rotate": -1,
+          "animation": {
+            "type": "fade",
+            "duration": 800,
+            "delay": 1800
+          }
+        },
+        {
+          "kind": "image",
+          "x": 250,
+          "y": -150,
+          "width": 500,
+          "height": 350,
+          "ratio": 0,
+          "url": "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=1600",
+          "image": null,
+          "rotate": 1,
+          "animation": {
+            "type": "pan",
+            "duration": 1200,
+            "delay": 1000,
+            "direction": "right"
+          }
+        },
+        {
+          "kind": "text",
+          "x": 342,
+          "y": 230,
+          "width": 316,
+          "height": 43,
+          "text": "Bespoke Interiors",
+          "fontSize": 34,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 700,
+          "fontStyle": "normal",
+          "fontColor": "#FFFFFF",
+          "fontOpacity": 1,
+          "rotate": 1,
+          "animation": {
+            "type": "raise",
+            "duration": 800,
+            "delay": 2000
+          }
+        },
+        {
+          "kind": "text",
+          "x": 222,
+          "y": 290,
+          "width": 556,
+          "height": 48,
+          "text": "Hand-stitched leather and premium wood finishes for\n ultimate comfort.",
+          "fontSize": 20,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 400,
+          "fontStyle": "normal",
+          "fontColor": "#94A3B8",
+          "fontOpacity": 0.9,
+          "rotate": 1,
+          "animation": {
+            "type": "fade",
+            "duration": 800,
+            "delay": 2200
+          }
+        },
+        {
+          "kind": "text",
+          "x": -287,
+          "y": 420,
+          "width": 575,
+          "height": 43,
+          "text": "SCHEDULE A TEST DRIVE",
+          "fontSize": 44,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 800,
+          "fontStyle": "normal",
+          "fontColor": "#FCD34D",
+          "fontOpacity": 1,
+          "rotate": 0,
+          "animation": {
+            "type": "raise",
+            "duration": 800,
+            "delay": 2800
+          }
+        },
+        {
+          "kind": "text",
+          "x": -196,
+          "y": 480,
+          "width": 393,
+          "height": 28,
+          "text": "Reserve your exclusive experience today.",
+          "fontSize": 18,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 400,
+          "fontStyle": "italic",
+          "fontColor": "#E2E8F0",
+          "fontOpacity": 0.8,
+          "rotate": 0,
+          "animation": {
+            "type": "fade",
+            "duration": 1000,
+            "delay": 3100
+          }
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "width": 1920,
+      "height": 1080,
+      "background": {
+        "color": {
+          "r": 5,
+          "g": 5,
+          "b": 10,
+          "a": 1.0
+        }
+      },
+      "shapes": [
+        {
+          "kind": "text",
+          "x": -303,
+          "y": -480,
+          "width": 607,
+          "height": 78,
+          "text": "VELOCITY GT",
+          "fontSize": 90,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 900,
+          "fontStyle": "normal",
+          "fontColor": "#FCD34D",
+          "fontOpacity": 1,
+          "rotate": 0,
+          "animation": {
+            "type": "raise",
+            "duration": 1000,
+            "delay": 0
+          }
+        },
+        {
+          "kind": "text",
+          "x": -279,
+          "y": -360,
+          "width": 558,
+          "height": 41,
+          "text": "Redefining Performance & Luxury",
+          "fontSize": 32,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 300,
+          "fontStyle": "normal",
+          "fontColor": "#E2E8F0",
+          "fontOpacity": 0.9,
+          "rotate": 0,
+          "animation": {
+            "type": "fade",
+            "duration": 1000,
+            "delay": 400
+          }
+        },
+        {
+          "kind": "image",
+          "x": -750,
+          "y": -150,
+          "width": 500,
+          "height": 350,
+          "ratio": 0,
+          "url": "https://images.unsplash.com/photo-1580273916550-e323be2ae537?w=1600",
+          "image": null,
+          "rotate": -1,
+          "animation": {
+            "type": "pan",
+            "duration": 1200,
+            "delay": 800,
+            "direction": "left"
+          }
+        },
+        {
+          "kind": "text",
+          "x": -689,
+          "y": 230,
+          "width": 379,
+          "height": 43,
+          "text": "Aerodynamic Artistry",
+          "fontSize": 34,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 700,
+          "fontStyle": "normal",
+          "fontColor": "#FFFFFF",
+          "fontOpacity": 1,
+          "rotate": -1,
+          "animation": {
+            "type": "raise",
+            "duration": 800,
+            "delay": 1600
+          }
+        },
+        {
+          "kind": "text",
+          "x": -881,
+          "y": 290,
+          "width": 763,
+          "height": 29,
+          "text": "Sculpted curves designed to slice through the air with minimal resistance.",
+          "fontSize": 20,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 400,
+          "fontStyle": "normal",
+          "fontColor": "#94A3B8",
+          "fontOpacity": 0.9,
+          "rotate": -1,
+          "animation": {
+            "type": "fade",
+            "duration": 800,
+            "delay": 1800
+          }
+        },
+        {
+          "kind": "image",
+          "x": 250,
+          "y": -150,
+          "width": 500,
+          "height": 350,
+          "ratio": 0,
+          "url": "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=1600",
+          "image": null,
+          "rotate": 1,
+          "animation": {
+            "type": "pan",
+            "duration": 1200,
+            "delay": 1000,
+            "direction": "right"
+          }
+        },
+        {
+          "kind": "text",
+          "x": 342,
+          "y": 230,
+          "width": 316,
+          "height": 43,
+          "text": "Bespoke Interiors",
+          "fontSize": 34,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 700,
+          "fontStyle": "normal",
+          "fontColor": "#FFFFFF",
+          "fontOpacity": 1,
+          "rotate": 1,
+          "animation": {
+            "type": "raise",
+            "duration": 800,
+            "delay": 2000
+          }
+        },
+        {
+          "kind": "text",
+          "x": 132,
+          "y": 290,
+          "width": 736,
+          "height": 29,
+          "text": "Hand-stitched leather and premium wood finishes for ultimate comfort.",
+          "fontSize": 20,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 400,
+          "fontStyle": "normal",
+          "fontColor": "#94A3B8",
+          "fontOpacity": 0.9,
+          "rotate": 1,
+          "animation": {
+            "type": "fade",
+            "duration": 800,
+            "delay": 2200
+          }
+        },
+        {
+          "kind": "text",
+          "x": -287,
+          "y": 420,
+          "width": 575,
+          "height": 43,
+          "text": "SCHEDULE A TEST DRIVE",
+          "fontSize": 44,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 800,
+          "fontStyle": "normal",
+          "fontColor": "#FCD34D",
+          "fontOpacity": 1,
+          "rotate": 0,
+          "animation": {
+            "type": "raise",
+            "duration": 800,
+            "delay": 2800
+          }
+        },
+        {
+          "kind": "text",
+          "x": -196,
+          "y": 480,
+          "width": 393,
+          "height": 28,
+          "text": "Reserve your exclusive experience today.",
+          "fontSize": 18,
+          "fontFamily": "Noto Sans",
+          "fontWeight": 400,
+          "fontStyle": "italic",
+          "fontColor": "#E2E8F0",
+          "fontOpacity": 0.8,
+          "rotate": 0,
+          "animation": {
+            "type": "fade",
+            "duration": 1000,
+            "delay": 3100
+          }
+        }
+      ]
+    }
+  ]
+}

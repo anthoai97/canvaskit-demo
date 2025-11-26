@@ -26,6 +26,7 @@ export interface EventHandlerContext {
 	resizeStartState: ResizeState | null;
 	rotationStartState: RotationState | null;
 	isValidShapeIndex: (index: number) => boolean;
+	isTextEditing: () => boolean;
 	onCursorUpdate: (cursor: string) => void;
 	onScheduleDraw: () => void;
 	onPanning: (deltaX: number, deltaY: number) => void;
@@ -38,7 +39,15 @@ export interface EventHandlerContext {
 	onResizeStartStateChange: (state: ResizeState | null) => void;
 	onRotationStartStateChange: (state: RotationState | null) => void;
 	onTransformEnd: () => void;
+	onCopy: () => void;
+	onPaste: () => void;
+	onUndo: () => void;
+	onDelete: () => void;
+	onShapeDoubleClick: (shapeIndex: number, worldX: number, worldY: number) => void;
+	onStopTextEditing: () => void;
 }
+
+
 
 /**
  * Updates cursor style based on current state
@@ -348,6 +357,15 @@ export function handleMouseDown(event: MouseEvent, context: EventHandlerContext)
 	}
 
 	context.onScheduleDraw();
+
+	// Check for double click
+	const now = Date.now();
+	if (context.mouseState.lastClickTime && now - context.mouseState.lastClickTime < 300) {
+		if (context.isValidShapeIndex(clickedShapeIndex)) {
+			context.onShapeDoubleClick(clickedShapeIndex, worldPos.x, worldPos.y);
+		}
+	}
+	context.mouseState.lastClickTime = now;
 }
 
 /**
@@ -411,6 +429,38 @@ export function handleKeyDown(event: KeyboardEvent, context: EventHandlerContext
 		return;
 	}
 
+	// Handle Delete or Backspace
+	if (event.code === 'Delete' || event.key === 'Delete' || event.code === 'Backspace' || event.key === 'Backspace') {
+		// Don't delete shape if we're editing text
+		if (context.isTextEditing()) {
+			return; // Let the text editor handle it
+		}
+		event.preventDefault();
+		context.onDelete();
+		return;
+	}
+
+	// Handle Undo (Ctrl+Z or Cmd+Z)
+	if ((event.ctrlKey || event.metaKey) && (event.code === 'KeyZ' || event.key === 'z')) {
+		event.preventDefault();
+		context.onUndo();
+		return;
+	}
+
+	// Handle Copy (Ctrl+C or Cmd+C)
+	if ((event.ctrlKey || event.metaKey) && (event.code === 'KeyC' || event.key === 'c')) {
+		event.preventDefault();
+		context.onCopy();
+		return;
+	}
+
+	// Handle Paste (Ctrl+V or Cmd+V)
+	if ((event.ctrlKey || event.metaKey) && (event.code === 'KeyV' || event.key === 'v')) {
+		event.preventDefault();
+		context.onPaste();
+		return;
+	}
+
 	if ((event.code === 'Space' || event.key === ' ') && !context.cameraState.isPanning) {
 		event.preventDefault();
 		context.cameraState.isPanning = true;
@@ -418,7 +468,12 @@ export function handleKeyDown(event: KeyboardEvent, context: EventHandlerContext
 	}
 
 	if (event.code === 'Escape' || event.key === 'Escape') {
-		context.onSelectionClear();
+		// Stop text editing if active
+		if (context.isTextEditing()) {
+			context.onStopTextEditing();
+		} else {
+			context.onSelectionClear();
+		}
 	}
 }
 

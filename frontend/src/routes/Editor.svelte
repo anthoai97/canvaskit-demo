@@ -3,15 +3,21 @@
 	import { createWebGLSurface, initCanvasKit } from '$lib/canvakit/canvas';
 	import { createPaints, drawSelectedBorder } from '$lib/canvakit/drawing';
 	import { loadFonts, preloadFonts } from '$lib/canvakit/font';
-	import { drawTextShape } from '$lib/canvakit/text';
+	import { TextEditor } from '$lib/editor/text/TextEditor';
+	import { drawTextShape, calculateFitFontSize } from '$lib/canvakit/text';
 	import { getShapeCenter } from '$lib/utils/transform';
-	import { DEFAULT_CAMERA_ZOOM, INVALID_INDEX } from '$lib/constants/const';
+	import {
+		DEFAULT_CAMERA_ZOOM,
+		INVALID_INDEX,
+		MAX_CAMERA_ZOOM,
+		MIN_CAMERA_ZOOM
+	} from '$lib/constants/const';
 	import { CanvasKitWebSocket, type BinaryMessage } from '$lib/ws';
 	import { env } from '$env/dynamic/public';
 	import { resetSelectedShape, type ResizeState, type RotationState } from '$lib/types/editor';
 	import { resetHoverState } from '$lib/utils/hover-state';
 	import type { EditorDocument, EditorPage } from '$lib/types/page';
-	import type { Shape } from '$lib/types/shape';
+	import type { Shape, TextShape } from '$lib/types/shape';
 	import type { Canvas, CanvasKit, Paint, Surface, FontMgr } from 'canvaskit-wasm';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { createDefaultDocument, loadPageImages } from '$lib/editor/document-loader';
@@ -64,128 +70,9 @@
 	let recordingDocument: EditorDocument | null = null;
 	let recordingPageIndex = 0;
 	let recordingPageStartTimestamp: number | null = null;
-	let recordingWasAnimating = false;
 	let exportProgress = 0; // Export progress percentage (0-100)
 	let exportCurrentPage = 0;
 	let exportTotalPages = 0;
-
-	const getExportSize = (resolution: ExportResolution) => {
-		switch (resolution) {
-			case '720p':
-				return { width: 1280, height: 720 };
-			case '2k':
-				return { width: 2560, height: 1440 };
-			case '1080p':
-			default:
-				return { width: 1920, height: 1080 };
-		}
-	};
-
-	const handleAudioSelect = async (event: Event) => {
-		const target = event.target as HTMLSelectElement;
-		selectedAudioUrl = target.value;
-		if (selectedAudioUrl) {
-			try {
-				const response = await fetch(selectedAudioUrl);
-				audioBlob = await response.blob();
-			} catch (error) {
-				console.error('Failed to fetch audio:', error);
-				audioBlob = null;
-			}
-		} else {
-			audioBlob = null;
-		}
-	};
-
-	const finishRecording = async () => {
-		if (!isRecording) return;
-
-		// Stop recording loop immediately
-		isRecording = false;
-		isExporting = true;
-
-		try {
-			// Stop Recording
-			const blob = await recorder.stop(recordingTimeSec);
-			recordingLastTimestamp = null;
-
-			// Reset progress tracking
-			exportProgress = 0;
-			exportCurrentPage = 0;
-			exportTotalPages = 0;
-
-			// Clean up recording surface
-			if (recordingSurface) {
-				recordingSurface.delete();
-				recordingSurface = null;
-				recordingSkCanvas = null;
-			}
-
-			// Stop animation if it was playing
-			if (isAutoPlaying) toggleAutoPlay();
-
-			// Download the file
-			const url = URL.createObjectURL(blob);
-			const a = window.document.createElement('a');
-			a.href = url;
-			// Determine extension based on MIME type (usually webm or mp4)
-			const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
-			a.download = `canvas-export.${ext}`;
-			window.document.body.appendChild(a);
-			a.click();
-			window.document.body.removeChild(a);
-			URL.revokeObjectURL(url);
-		} finally {
-			isExporting = false;
-		}
-	};
-
-	const toggleRecording = async () => {
-		if (isRecording) {
-			await finishRecording();
-		} else {
-			if (!page || !ck) return;
-
-			// Setup recording canvas
-			const { width, height } = getExportSize(exportResolution);
-			recordingCanvas.width = width;
-			recordingCanvas.height = height;
-
-			// Initialize recording surface
-			recordingSurface = createWebGLSurface(ck, recordingCanvas);
-			if (!recordingSurface) {
-				console.error('Failed to create recording surface');
-				return;
-			}
-			recordingSkCanvas = recordingSurface.getCanvas();
-
-			// Prepare & start recorder
-			recordingTimeSec = 0;
-			recordingLastTimestamp = null;
-
-			// Snapshot document for independent recording
-			recordingDocument = {
-				...document!,
-				pages: document!.pages.map((p) => ({
-					...p,
-					shapes: p.shapes.map((s) => ({ ...s }))
-				}))
-			};
-			recordingPageIndex = 0;
-			recordingPageStartTimestamp = null;
-			recordingWasAnimating = false;
-
-			// Initialize progress tracking
-			exportProgress = 0;
-			exportCurrentPage = 1;
-			exportTotalPages = recordingDocument.pages.length;
-
-			await recorder.prepare(recordingCanvas, width, height, audioBlob || undefined);
-			await recorder.start();
-			isRecording = true;
-			recordLoop();
-		}
-	};
 
 	// ==================== CanvasKit State ====================
 	let ck: CanvasKit;
@@ -223,8 +110,30 @@
 	let resizingCorner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | null = null;
 	let resizeStartState: ResizeState | null = null;
 	let rotationStartState: RotationState | null = null;
+	let clipboard: Shape | null = null;
+	let history: Shape[][] = [];
 
 	// ==================== Camera & Mouse State ====================
+	const INITIAL_PAGE_VIEW_RATIO = 0.7;
+
+	const calculateInitialZoom = (page: EditorPage | null) => {
+		if (!page || !canvasWidth || !canvasHeight) {
+			return DEFAULT_CAMERA_ZOOM;
+		}
+
+		const widthScale = (canvasWidth * INITIAL_PAGE_VIEW_RATIO) / page.width;
+		const heightScale = (canvasHeight * INITIAL_PAGE_VIEW_RATIO) / page.height;
+		const fitZoom = Math.min(widthScale, heightScale);
+
+		if (!Number.isFinite(fitZoom) || fitZoom <= 0) {
+			return DEFAULT_CAMERA_ZOOM;
+		}
+
+		return Math.max(MIN_CAMERA_ZOOM, Math.min(MAX_CAMERA_ZOOM, fitZoom));
+	};
+
+	let isInitialZoomSet = false;
+
 	let cameraState = {
 		zoom: DEFAULT_CAMERA_ZOOM,
 		panX: 0,
@@ -242,6 +151,7 @@
 	// ==================== Transformation State ====================
 	let transformingShapeIndex: number = INVALID_INDEX;
 	let transformationType: 'drag' | 'resize' | 'rotate' | null = null;
+	let activeTextEditor: TextEditor | null = null;
 
 	// ==================== Rendering Resources ====================
 	let paints: ReturnType<typeof createPaints> | null = null;
@@ -314,16 +224,34 @@
 	// If another update comes for the same shape (or any shape in this simple impl), restart timer.
 	const debouncedSendShapeUpdate = debounce((shape: Shape) => {
 		if (!shape.id) return;
+
+		const baseData = {
+			id: shape.id,
+			x: shape.x,
+			y: shape.y,
+			width: shape.width,
+			height: shape.height,
+			rotate: shape.rotate
+		};
+
+		// Add text-specific fields if it's a text shape
+		const data =
+			shape.kind === 'text'
+				? {
+						...baseData,
+						text: shape.text,
+						fontSize: shape.fontSize,
+						fontFamily: shape.fontFamily,
+						fontWeight: shape.fontWeight,
+						fontStyle: shape.fontStyle,
+						fontColor: shape.fontColor,
+						fontOpacity: shape.fontOpacity
+					}
+				: baseData;
+
 		ws?.send({
 			event: 'shape_update',
-			data: {
-				id: shape.id,
-				x: shape.x,
-				y: shape.y,
-				width: shape.width,
-				height: shape.height,
-				rotate: shape.rotate
-			}
+			data
 		});
 	}, 150);
 
@@ -435,6 +363,10 @@
 		// Reset camera to center
 		cameraState.panX = centerX;
 		cameraState.panY = centerY;
+		if (!isInitialZoomSet) {
+			cameraState.zoom = calculateInitialZoom(page);
+			isInitialZoomSet = true;
+		}
 
 		// Clear selection
 		resetSelectedShape(selectedShape);
@@ -475,6 +407,9 @@
 	// Reactive: Update current page when index changes (only after initialization)
 	$: if (isInitialized && currentPageIndex >= 0) {
 		loadPage(currentPageIndex);
+		// Schedule thumbnail capture for the newly loaded page
+		// This ensures all pages get thumbnails when they become active
+		scheduleThumbnailCapture();
 	}
 
 	/**
@@ -608,6 +543,86 @@
 						scheduleDraw();
 					}
 				}
+			} else if (message.json.event === 'shape_created') {
+				const newShape = message.json.data;
+				if (newShape && newShape.id) {
+					// Check if we already have this shape (optimistic update)
+					// Actually, for other clients, we just add it.
+					const exists = shapes.some((s) => s.id === newShape.id);
+					if (!exists) {
+						// Load image if needed
+						if (newShape.kind === 'image' && newShape.url) {
+							loadSkImage(ck, newShape.url).then((image) => {
+								if (image) {
+									newShape.image = image;
+									newShape.ratio = image.width() / image.height();
+									shapes = [...shapes, newShape];
+									scheduleDraw();
+									scheduleThumbnailCapture();
+								}
+							});
+						} else {
+							shapes = [...shapes, newShape];
+							scheduleDraw();
+							scheduleThumbnailCapture();
+						}
+					}
+				}
+			} else if (message.json.event === 'shape_created_ack') {
+				const realShape = message.json.data;
+				const tempId = message.json.temp_id;
+
+				if (realShape && tempId) {
+					const index = shapes.findIndex((s) => s.id === tempId);
+					if (index !== -1) {
+						// Update ID from temp to real
+						const shape = shapes[index];
+						shape.id = realShape.id;
+						// Update other props just in case backend sanitized something
+						shape.x = realShape.x;
+						shape.y = realShape.y;
+
+						shapes = [...shapes];
+					}
+				}
+			} else if (message.json.event === 'page_state_synced') {
+				const syncedShapes = message.json.shapes;
+				const pageId = message.json.page_id;
+
+				if (page && page.id === pageId && syncedShapes) {
+					// Full sync of shapes
+					// We need to be careful not to break image references if possible,
+					// but since this is a full sync, we might need to reload images if they are new.
+					// However, for existing images, we can try to preserve the object if ID matches.
+
+					const newShapes = syncedShapes.map((s: any) => {
+						// Try to find existing shape to preserve image object
+						const existing = shapes.find((ex) => ex.id === s.id);
+						if (existing && existing.kind === 'image' && existing.image) {
+							s.image = existing.image;
+						} else if (s.kind === 'image' && s.url) {
+							// Load image if missing
+							loadSkImage(ck, s.url).then((image) => {
+								if (image) {
+									// We can't easily update 's' here as it's already in the array.
+									// We'd need to find it in 'shapes' again.
+									const target = shapes.find((sh) => sh.id === s.id);
+									if (target && target.kind === 'image') {
+										target.image = image;
+										target.ratio = image.width() / image.height();
+										scheduleDraw();
+										scheduleThumbnailCapture();
+									}
+								}
+							});
+						}
+						return s;
+					});
+
+					shapes = newShapes;
+					scheduleDraw();
+					scheduleThumbnailCapture();
+				}
 			}
 		});
 
@@ -717,6 +732,132 @@
 		drawScene();
 	};
 
+	const getExportSize = (resolution: ExportResolution) => {
+		switch (resolution) {
+			case '720p':
+				return { width: 1280, height: 720 };
+			case '2k':
+				return { width: 2560, height: 1440 };
+			case '1080p':
+			default:
+				return { width: 1920, height: 1080 };
+		}
+	};
+
+	const handleAudioSelect = async (event: Event) => {
+		const target = event.target as HTMLSelectElement;
+		selectedAudioUrl = target.value;
+		if (selectedAudioUrl) {
+			try {
+				const response = await fetch(selectedAudioUrl);
+				audioBlob = await response.blob();
+			} catch (error) {
+				console.error('Failed to fetch audio:', error);
+				audioBlob = null;
+			}
+		} else {
+			audioBlob = null;
+		}
+	};
+
+	const finishRecording = async () => {
+		if (!isRecording) return;
+
+		// Stop recording loop immediately
+		isRecording = false;
+		isExporting = true;
+
+		try {
+			// Stop Recording
+			const blob = await recorder.stop(recordingTimeSec);
+			recordingLastTimestamp = null;
+
+			// Reset progress tracking
+			exportProgress = 0;
+			exportCurrentPage = 0;
+			exportTotalPages = 0;
+
+			// Clean up recording surface
+			if (recordingSurface) {
+				recordingSurface.delete();
+				recordingSurface = null;
+				recordingSkCanvas = null;
+			}
+
+			// Stop animation if it was playing
+			if (isAutoPlaying) toggleAutoPlay();
+
+			// Download the file
+			const url = URL.createObjectURL(blob);
+			const a = window.document.createElement('a');
+			a.href = url;
+			// Determine extension based on MIME type (usually webm or mp4)
+			const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+			a.download = `canvas-export.${ext}`;
+			window.document.body.appendChild(a);
+			a.click();
+			window.document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		} finally {
+			isExporting = false;
+		}
+	};
+
+	const toggleRecording = async () => {
+		if (isRecording) {
+			await finishRecording();
+		} else {
+			if (!page || !ck) return;
+
+			// Setup recording canvas
+			const { width, height } = getExportSize(exportResolution);
+			recordingCanvas.width = width;
+			recordingCanvas.height = height;
+
+			// Initialize recording surface
+			recordingSurface = createWebGLSurface(ck, recordingCanvas);
+			if (!recordingSurface) {
+				console.error('Failed to create recording surface');
+				return;
+			}
+			recordingSkCanvas = recordingSurface.getCanvas();
+
+			// Prepare & start recorder
+			recordingTimeSec = 0;
+			recordingLastTimestamp = null;
+
+			// Snapshot document for independent recording
+			recordingDocument = {
+				...document,
+				pages: document!.pages.map((p) => ({
+					...p,
+					shapes:
+						shapes != null
+							? shapes
+							: p.shapes.map((s) => ({
+									...s,
+									id: undefined
+								}))
+				}))
+			};
+
+			console.log('Recording document:', recordingDocument.pages);
+
+			recordingPageIndex = 0;
+			recordingPageStartTimestamp = null;
+
+			// Initialize progress tracking
+			exportProgress = 0;
+			exportCurrentPage = 1;
+			exportTotalPages = recordingDocument.pages.length;
+
+			await recorder.prepare(recordingCanvas, width, height, audioBlob || undefined);
+			await recorder.start();
+			isRecording = true;
+			recordLoop();
+		}
+	};
+
 	onMount(initializeEditor);
 
 	onDestroy(() => {
@@ -745,6 +886,10 @@
 		resizingCorner = null;
 		resizeStartState = null;
 		rotationStartState = null;
+		if (activeTextEditor) {
+			activeTextEditor.stop();
+			activeTextEditor = null;
+		}
 	});
 
 	// ==================== Selection & Hover Helpers ====================
@@ -769,10 +914,16 @@
 		}
 	};
 
+	const stopTextEditing = () => {
+		if (!activeTextEditor) return;
+		activeTextEditor.stop();
+	};
+
 	/**
 	 * Clears selection state
 	 */
 	const clearSelection = () => {
+		stopTextEditing();
 		resetSelectedShape(selectedShape);
 		resetHoverState(hoverState);
 		resizingCorner = null;
@@ -882,6 +1033,13 @@
 		updateCursor(context);
 	};
 
+	/**
+	 * Checks if text editing is currently active
+	 */
+	const isTextEditing = (): boolean => {
+		return activeTextEditor !== null;
+	};
+
 	// ==================== Event Handler Context ====================
 
 	/**
@@ -900,6 +1058,7 @@
 			resizeStartState,
 			rotationStartState,
 			isValidShapeIndex,
+			isTextEditing,
 			onCursorUpdate: (cursor: string) => {
 				canvasCursor = cursor;
 			},
@@ -909,6 +1068,9 @@
 				cameraState.panY += deltaY;
 			},
 			onShapeDrag: (shapeIndex: number, deltaX: number, deltaY: number) => {
+				if (transformationType !== 'drag') {
+					addToHistory();
+				}
 				const draggedShape = shapes[shapeIndex];
 				draggedShape.x += deltaX;
 				draggedShape.y += deltaY;
@@ -928,11 +1090,22 @@
 				}
 			},
 			onShapeResize: (shapeIndex: number, x: number, y: number, width: number, height: number) => {
+				if (transformationType !== 'resize') {
+					addToHistory();
+				}
 				const shape = shapes[shapeIndex];
+
+				// Apply resize dimensions
 				shape.x = x;
 				shape.y = y;
 				shape.width = width;
 				shape.height = height;
+
+				// Auto-fit font size for text shapes
+				if (shape.kind === 'text' && ck && fontMgr) {
+					const newFontSize = calculateFitFontSize(ck, fontMgr, shape.text, width, height);
+					shape.fontSize = newFontSize;
+				}
 
 				// Set transformation state
 				transformingShapeIndex = shapeIndex;
@@ -949,6 +1122,9 @@
 				}
 			},
 			onShapeRotate: (shapeIndex: number, rotation: number) => {
+				if (transformationType !== 'rotate') {
+					addToHistory();
+				}
 				const shape = shapes[shapeIndex];
 				shape.rotate = rotation;
 
@@ -967,6 +1143,7 @@
 				}
 			},
 			onSelectionChange: (shapeIndex: number) => {
+				stopTextEditing();
 				selectedShape.index = shapeIndex;
 				selectedShape.rendered = false;
 			},
@@ -989,8 +1166,262 @@
 					clearOverlay();
 					scheduleDraw(); // Redraw main canvas with all shapes
 				}
+			},
+			onCopy: () => {
+				if (selectedShape.index !== INVALID_INDEX) {
+					const shape = shapes[selectedShape.index];
+					// Deep copy the shape data
+					const copy = JSON.parse(JSON.stringify(shape));
+
+					// Restore the image object reference for image shapes
+					// JSON.stringify destroys the WASM Image object methods
+					if (shape.kind === 'image' && shape.image) {
+						copy.image = shape.image;
+					}
+
+					clipboard = copy;
+				}
+			},
+			onPaste: () => {
+				if (clipboard) {
+					addToHistory();
+					// Deep copy the clipboard data
+					const newShape = JSON.parse(JSON.stringify(clipboard));
+
+					// Restore the image object reference
+					if (clipboard.kind === 'image' && clipboard.image) {
+						newShape.image = clipboard.image;
+					}
+
+					newShape.id = Date.now() + Math.floor(Math.random() * 1000);
+					newShape.x += 20;
+					newShape.y += 20;
+
+					shapes = [...shapes, newShape];
+
+					// Select the new shape
+					selectedShape.index = shapes.length - 1;
+					selectedShape.rendered = false;
+
+					scheduleDraw();
+					scheduleThumbnailCapture();
+					debouncedSendShapeUpdate(newShape);
+
+					// Send create event to backend
+					if (ws && page) {
+						ws.send({
+							event: 'shape_create',
+							page_id: page.id,
+							temp_id: newShape.id,
+							data: {
+								kind: newShape.kind,
+								x: newShape.x,
+								y: newShape.y,
+								width: newShape.width,
+								height: newShape.height,
+								rotate: newShape.rotate,
+								// Include other properties
+								...(newShape.kind === 'text'
+									? {
+											text: newShape.text,
+											fontSize: newShape.fontSize,
+											fontFamily: newShape.fontFamily,
+											fontWeight: newShape.fontWeight,
+											fontStyle: newShape.fontStyle,
+											fontColor: newShape.fontColor,
+											fontOpacity: newShape.fontOpacity
+										}
+									: {
+											url: newShape.url,
+											ratio: newShape.ratio
+										}),
+								animation: newShape.animation
+							}
+						});
+					}
+				}
+			},
+			onUndo: () => {
+				if (history.length > 0) {
+					const previousShapes = history.pop();
+					if (previousShapes) {
+						// Restore shapes
+						shapes = previousShapes;
+
+						// Clear selection to avoid issues with invalid indices
+						selectedShape.index = INVALID_INDEX;
+						selectedShape.rendered = false;
+						resetHoverState(hoverState);
+
+						scheduleDraw();
+						scheduleThumbnailCapture();
+
+						// Sync with backend
+						if (ws && page) {
+							ws.send({
+								event: 'sync_page_shapes',
+								page_id: page.id,
+								shapes: shapes.map((s) => ({
+									id: s.id,
+									kind: s.kind,
+									x: s.x,
+									y: s.y,
+									width: s.width,
+									height: s.height,
+									rotate: s.rotate,
+									// Include other properties
+									...(s.kind === 'text'
+										? {
+												text: s.text,
+												fontSize: s.fontSize,
+												fontFamily: s.fontFamily,
+												fontWeight: s.fontWeight,
+												fontStyle: s.fontStyle,
+												fontColor: s.fontColor,
+												fontOpacity: s.fontOpacity
+											}
+										: {
+												url: s.url,
+												ratio: s.ratio
+											}),
+									animation: s.animation
+								}))
+							});
+						}
+					}
+				}
+			},
+			onDelete: () => {
+				if (selectedShape.index !== INVALID_INDEX) {
+					addToHistory();
+
+					// Remove the shape from the array
+					shapes = shapes.filter((_, index) => index !== selectedShape.index);
+
+					// Clear selection
+					selectedShape.index = INVALID_INDEX;
+					selectedShape.rendered = false;
+					resetHoverState(hoverState);
+
+					scheduleDraw();
+					scheduleThumbnailCapture();
+
+					// Sync with backend
+					if (ws && page) {
+						ws.send({
+							event: 'sync_page_shapes',
+							page_id: page.id,
+							shapes: shapes.map((s) => ({
+								id: s.id,
+								kind: s.kind,
+								x: s.x,
+								y: s.y,
+								width: s.width,
+								height: s.height,
+								rotate: s.rotate,
+								// Include other properties
+								...(s.kind === 'text'
+									? {
+											text: s.text,
+											fontSize: s.fontSize,
+											fontFamily: s.fontFamily,
+											fontWeight: s.fontWeight,
+											fontStyle: s.fontStyle,
+											fontColor: s.fontColor,
+											fontOpacity: s.fontOpacity
+										}
+									: {
+											url: s.url,
+											ratio: s.ratio
+										}),
+								animation: s.animation
+							}))
+						});
+					}
+				}
+			},
+			onShapeDoubleClick: (shapeIndex: number, worldX: number, worldY: number) => {
+				const shape = shapes[shapeIndex];
+
+				if (shape.kind !== 'text' || !ck || !fontMgr || !editor) {
+					return;
+				}
+
+				// Stop existing editor if any before starting a new session
+				if (activeTextEditor) {
+					activeTextEditor.stop();
+				}
+
+				// Ensure the shape is selected so handles appear while editing
+				selectedShape.index = shapeIndex;
+				selectedShape.rendered = false;
+
+				// Capture state for undo before mutating text
+				addToHistory();
+
+				const textShape: TextShape = shape;
+
+				// Calculate click position relative to shape's top-left corner
+				const relativeX = worldX - textShape.x;
+				const relativeY = worldY - textShape.y;
+
+				const newTextEditor = new TextEditor(
+					ck,
+					fontMgr,
+					textShape,
+					editor,
+					cameraState,
+					{
+						onUpdate: (updatedText: string) => {
+							textShape.text = updatedText;
+							shapes = [...shapes];
+							scheduleDraw();
+							if (updateShapesHash()) {
+								scheduleThumbnailCapture();
+							}
+							// Sync text changes to backend
+							debouncedSendShapeUpdate(textShape);
+						},
+						onStop: () => {
+							activeTextEditor = null;
+							scheduleDraw();
+						},
+						onCursorMove: () => {
+							scheduleDraw();
+						}
+					},
+					relativeX,
+					relativeY
+				);
+
+				activeTextEditor = newTextEditor;
+				scheduleDraw();
+			},
+			onStopTextEditing: () => {
+				console.log('[Editor] onStopTextEditing');
+				stopTextEditing();
 			}
 		};
+	};
+	/**
+	 * Adds current state to history
+	 */
+	const addToHistory = () => {
+		// Deep copy shapes
+		const shapesCopy = shapes.map((shape) => {
+			const copy = JSON.parse(JSON.stringify(shape));
+			if (shape.kind === 'image' && shape.image) {
+				copy.image = shape.image;
+			}
+			return copy;
+		});
+
+		history.push(shapesCopy);
+
+		// Limit to 30 items
+		if (history.length > 30) {
+			history.shift();
+		}
 	};
 
 	// ==================== Rendering ====================
@@ -1082,9 +1513,22 @@
 			startShapeAnimations(page.shapes, now);
 		}
 
-		// 3. Draw & Capture
-		// We need to pass the RECORDING page to drawRecordingFrame
-		drawRecordingFrame(page, now);
+		// 3. Frame Throttling - Only capture frames at 30 FPS
+		const TARGET_FPS = 30;
+		const FRAME_INTERVAL = 1000 / TARGET_FPS; // ~33.33ms between frames
+
+		if (recordingLastTimestamp === null) {
+			recordingLastTimestamp = now;
+		}
+
+		const timeSinceLastFrame = now - recordingLastTimestamp;
+
+		// Only draw and capture if enough time has passed for the next frame
+		if (timeSinceLastFrame >= FRAME_INTERVAL) {
+			// Draw & Capture
+			drawRecordingFrame(page, now);
+			recordingLastTimestamp = now;
+		}
 
 		// 4. Check for Page Switch
 		const timeOnPage = now - recordingPageStartTimestamp;
@@ -1175,17 +1619,15 @@
 		// Clean up recording paints
 		Object.values(recordingPaints).forEach((p) => p.delete());
 
-		// Capture frame for encoder
-		if (recordingLastTimestamp === null) {
-			recordingLastTimestamp = now;
-		}
-		const dtSec = (now - recordingLastTimestamp) / 1000;
-		recordingLastTimestamp = now;
+		// Capture frame for encoder with constant frame rate (30 FPS)
+		// Frame throttling is handled in recordLoop to ensure we capture at exactly 30 FPS
+		const FRAME_DURATION = 1 / 30; // 0.0333 seconds per frame
+
 		const frameTimestamp = recordingTimeSec;
-		recordingTimeSec += dtSec;
+		recordingTimeSec += FRAME_DURATION;
 
 		recorder
-			.captureFrame(frameTimestamp, dtSec)
+			.captureFrame(frameTimestamp, FRAME_DURATION)
 			.catch((err) => console.error('captureFrame error:', err));
 
 		return isAnimating;
@@ -1227,8 +1669,65 @@
 			}
 
 			wasAnimating = isAnimating;
+
+			// Draw text editor overlay on top
+			drawTextEditorOverlay();
 		} catch (error) {
 			console.error('Error rendering scene:', error);
+		}
+	};
+
+	$: if (activeTextEditor && cameraState) {
+		activeTextEditor.updateLayout(cameraState);
+	}
+
+	const drawTextEditorOverlay = () => {
+		if (!activeTextEditor || !skCanvas || !ck || !cameraState) return;
+
+		const cursorRect = activeTextEditor.getCursorRect();
+
+		if (cursorRect) {
+			skCanvas.save();
+
+			// Apply camera transformations
+			skCanvas.scale(devicePixelRatioValue, devicePixelRatioValue);
+			skCanvas.translate(cameraState.panX, cameraState.panY);
+			skCanvas.scale(cameraState.zoom, cameraState.zoom);
+
+			if (selectedShape.index !== INVALID_INDEX) {
+				const shape = shapes[selectedShape.index];
+
+				if (shape.kind === 'text') {
+					const center = getShapeCenter(shape);
+
+					// Apply shape rotation
+					if (shape.rotate) {
+						skCanvas.translate(center.x, center.y);
+						skCanvas.rotate(shape.rotate, 0, 0);
+						skCanvas.translate(-center.x, -center.y);
+					}
+
+					// Translate to shape position (top-left)
+					skCanvas.translate(shape.x, shape.y);
+
+					// Draw cursor
+					const paint = new ck.Paint();
+					paint.setColor(ck.WHITE); // Black cursor
+					paint.setStyle(ck.PaintStyle.Fill);
+
+					// Cursor rect is [left, top, right, bottom]
+					// We might want to make it a bit wider or ensure it's visible
+					skCanvas.drawRect(cursorRect, paint);
+					paint.delete();
+				}
+			}
+
+			skCanvas.restore();
+		}
+
+		// Flush to ensure cursor is visible
+		if (surface) {
+			surface.flush();
 		}
 	};
 
@@ -1368,19 +1867,23 @@
 		}
 	}
 
-	// Start background thumbnail processing when document is loaded (only once)
-	$: if (
-		isInitialized &&
-		document &&
-		document.pages.length > 0 &&
-		!backgroundThumbnailsStarted &&
-		ck &&
-		fontMgr
-	) {
-		backgroundThumbnailsStarted = true;
-		scheduleBackgroundThumbnailProcessing(ck, fontMgr, document, (updatedDocument) => {
-			document = updatedDocument;
-		});
+	// Start background thumbnail processing when document is loaded or when pages change
+	$: if (isInitialized && document && document.pages.length > 0 && ck && fontMgr) {
+		// Check if there are pages needing thumbnails
+		const pagesNeedingThumbnails = document.pages.filter(
+			(p) => !p.thumbnailUrl && p.shapes.length > 0
+		);
+
+		// Only trigger background processing if there are pages that need thumbnails
+		// and we haven't started processing yet, or if new pages were added
+		if (pagesNeedingThumbnails.length > 0 && !backgroundThumbnailsStarted) {
+			backgroundThumbnailsStarted = true;
+			scheduleBackgroundThumbnailProcessing(ck, fontMgr, document, (updatedDocument) => {
+				document = updatedDocument;
+				// Reset flag after processing completes to allow re-processing if needed
+				backgroundThumbnailsStarted = false;
+			});
+		}
 	}
 
 	// Architecture Modal

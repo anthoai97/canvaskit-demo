@@ -1,0 +1,272 @@
+import type { CanvasKit, FontMgr, Paragraph } from 'canvaskit-wasm';
+import type { TextShape } from '$lib/types/shape';
+import { PhantomTextArea } from './PhantomTextArea';
+import { TextModel } from './TextModel';
+import { fontFamilies } from '$lib/constants/const';
+import { calculateTextDimensions } from '$lib/canvakit/text';
+
+import type { CameraState } from '$lib/types/camera';
+
+export interface TextEditorEvents {
+	onUpdate: (text: string) => void;
+	onStop: () => void;
+	onCursorMove: () => void;
+}
+
+export class TextEditor {
+	private ck: CanvasKit;
+	private fontMgr: FontMgr;
+	private shape: TextShape;
+	private phantom: PhantomTextArea;
+	private model: TextModel;
+	private callbacks: TextEditorEvents;
+
+	private cursorIndex: number = 0;
+	private selectionStart: number | null = null; // For future selection support
+
+	// Undo history - stores text and cursor position
+	private textHistory: Array<{ text: string; cursorIndex: number }> = [];
+	private historyIndex: number = -1;
+	private readonly MAX_HISTORY = 30;
+
+	constructor(
+		ck: CanvasKit,
+		fontMgr: FontMgr,
+		shape: TextShape,
+		container: HTMLElement,
+		cameraState: CameraState,
+		callbacks: TextEditorEvents,
+		clickX?: number,
+		clickY?: number
+	) {
+		this.ck = ck;
+		this.fontMgr = fontMgr;
+		this.shape = shape;
+		this.callbacks = callbacks;
+		this.model = new TextModel(shape.text);
+
+		// Set initial cursor position based on click location if provided
+		if (clickX !== undefined && clickY !== undefined) {
+			this.cursorIndex = this.getCursorIndexFromPoint(clickX, clickY);
+		} else {
+			this.cursorIndex = shape.text.length; // Default: start cursor at end
+		}
+
+		this.phantom = new PhantomTextArea(container);
+		this.phantom.addEventListener('insert', (e) => this.handleInsert(e.text));
+		this.phantom.addEventListener('backspace', () => this.handleBackspace());
+		this.phantom.addEventListener('delete', () => this.handleDelete());
+		this.phantom.addEventListener('left', () => this.moveCursor(-1));
+		this.phantom.addEventListener('right', () => this.moveCursor(1));
+		this.phantom.addEventListener('enter', () => this.handleInsert('\n'));
+		this.phantom.addEventListener('undo', () => this.handleUndo());
+
+		// Initialize history with current text
+		this.saveHistory();
+
+		// Auto-adjust shape dimensions to fit text on first render
+		this.updateShape();
+
+		// Initial layout
+		this.updateLayout(cameraState);
+
+		// Focus immediately
+		this.phantom.focus();
+	}
+
+	public updateLayout(cameraState: CameraState) {
+		const { zoom, panX, panY } = cameraState;
+		const screenX = this.shape.x * zoom + panX;
+		const screenY = this.shape.y * zoom + panY;
+		const screenFontSize = this.shape.fontSize * zoom;
+
+		this.phantom.move(screenX, screenY);
+		this.phantom.height = screenFontSize;
+	}
+
+	private handleInsert(text: string) {
+		this.saveHistory();
+		const [newModel, newPos] = this.model.insert(this.cursorIndex, text);
+		this.model = newModel;
+		this.cursorIndex = newPos;
+		this.updateShape();
+	}
+
+	private handleBackspace() {
+		if (this.cursorIndex > 0) {
+			this.saveHistory();
+			const [newModel, newPos] = this.model.deleteBackward(this.cursorIndex);
+			this.model = newModel;
+			this.cursorIndex = newPos;
+			this.updateShape();
+		}
+	}
+
+	private handleDelete() {
+		if (this.cursorIndex < this.model.text.length) {
+			this.saveHistory();
+			const [newModel, newPos] = this.model.deleteForward(this.cursorIndex);
+			this.model = newModel;
+			this.cursorIndex = newPos;
+			this.updateShape();
+		}
+	}
+
+	private moveCursor(delta: number) {
+		this.cursorIndex = this.model.clampPosition(this.cursorIndex + delta);
+		this.callbacks.onCursorMove();
+		// TODO: Handle up/down navigation using paragraph metrics
+	}
+
+	private updateShape() {
+		this.shape.text = this.model.text;
+
+		// Auto-adjust shape dimensions to fit text at current font size
+		const { width, height } = calculateTextDimensions(
+			this.ck,
+			this.fontMgr,
+			this.model.text,
+			this.shape.fontSize
+		);
+
+		this.shape.width = width;
+		this.shape.height = height;
+		this.callbacks.onUpdate(this.model.text);
+	}
+
+	public stop() {
+		this.phantom.destroy();
+		this.callbacks.onStop();
+	}
+
+	// Helper to build paragraph for metrics (duplicated from drawTextShape for now)
+	// In a real app, we might want to cache this or share logic
+	private buildParagraph(): Paragraph {
+		const paraStyle = new this.ck.ParagraphStyle({
+			textStyle: {
+				color: this.ck.BLACK, // Color doesn't matter for metrics
+				fontFamilies: fontFamilies.length > 0 ? fontFamilies : ['Noto Sans'],
+				fontSize: this.shape.fontSize
+			},
+			textAlign: this.ck.TextAlign.Left
+		});
+
+		const builder = this.ck.ParagraphBuilder.Make(paraStyle, this.fontMgr);
+		builder.addText(this.model.text);
+		const paragraph = builder.build();
+		paragraph.layout(this.shape.width);
+		builder.delete();
+		return paragraph;
+	}
+
+	public getCursorRect(): Float32Array | null {
+		const paragraph = this.buildParagraph();
+
+		let low: number;
+		let high: number;
+		let useRightEdge = false;
+
+		// Special case: cursor at the beginning
+		if (this.cursorIndex === 0) {
+			[low, high] = [0, 1];
+		}
+		// Special case: cursor at the end
+		else if (this.cursorIndex === this.model.text.length) {
+			[low, high] = [this.cursorIndex - 1, this.cursorIndex];
+			useRightEdge = true;
+		}
+		// Normal case: cursor in the middle
+		else {
+			[low, high] = [this.cursorIndex, this.cursorIndex + 1];
+		}
+
+		const rects = paragraph.getRectsForRange(
+			low,
+			high,
+			this.ck.RectHeightStyle.Max,
+			this.ck.RectWidthStyle.Tight
+		);
+
+		let cursorRect: Float32Array | null = null;
+
+		if (rects.length > 0) {
+			const rect = rects[0].rect;
+			const [x0, y0, x1, y1] = rect;
+			// Create a thin vertical line for the cursor
+			const cursorX = useRightEdge ? x1 : x0;
+			const cursorWidth = 2; // 2px wide cursor
+			cursorRect = Float32Array.of(cursorX, y0, cursorX + cursorWidth, y1);
+		} else {
+			// Fallback for empty text
+			cursorRect = Float32Array.of(0, 0, 2, this.shape.fontSize);
+		}
+
+		paragraph.delete();
+		return cursorRect;
+	}
+
+	/**
+	 * Gets the cursor index from a point (x, y) relative to the shape's top-left corner
+	 */
+	private getCursorIndexFromPoint(x: number, y: number): number {
+		const paragraph = this.buildParagraph();
+
+		// Get the glyph position at the clicked coordinate
+		const glyphInfo = paragraph.getGlyphPositionAtCoordinate(x, y);
+
+		paragraph.delete();
+
+		// glyphInfo.pos gives us the character position
+		if (glyphInfo && glyphInfo.pos !== undefined) {
+			// Clamp to valid range
+			return this.model.clampPosition(glyphInfo.pos);
+		}
+
+		// Fallback to end of text if we can't determine position
+		return this.model.text.length;
+	}
+
+	/**
+	 * Public method to set cursor position from a click point
+	 */
+	public setCursorFromPoint(x: number, y: number): void {
+		this.cursorIndex = this.getCursorIndexFromPoint(x, y);
+		this.callbacks.onCursorMove();
+	}
+
+	/**
+	 * Saves current text state to history
+	 */
+	private saveHistory(): void {
+		// Remove any history after current index (when user types after undo)
+		this.textHistory = this.textHistory.slice(0, this.historyIndex + 1);
+
+		// Add current state (text + cursor position)
+		this.textHistory.push({
+			text: this.model.text,
+			cursorIndex: this.cursorIndex
+		});
+
+		// Limit history size
+		if (this.textHistory.length > this.MAX_HISTORY) {
+			this.textHistory.shift();
+		} else {
+			this.historyIndex++;
+		}
+	}
+
+	/**
+	 * Handles undo operation
+	 */
+	private handleUndo(): void {
+		if (this.historyIndex > 0) {
+			this.historyIndex--;
+			const previousState = this.textHistory[this.historyIndex];
+
+			this.model = new TextModel(previousState.text);
+			this.cursorIndex = this.model.clampPosition(previousState.cursorIndex);
+			this.updateShape();
+			this.callbacks.onCursorMove(); // Trigger cursor redraw
+		}
+	}
+}

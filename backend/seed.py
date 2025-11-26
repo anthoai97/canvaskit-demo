@@ -18,7 +18,8 @@ def seed_data():
         # Define mock files to load
         mock_files = [
             "beautiful_mock_data.json",
-            "stress_test.json"
+            "stress_test.json",
+            "sample1.json"
         ]
 
         for mock_file in mock_files:
