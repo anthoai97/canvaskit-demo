@@ -3,4 +3,5 @@ export interface MouseState {
 	isDragging: boolean;
 	lastMouseX: number;
 	lastMouseY: number;
+	lastClickTime?: number;
 }

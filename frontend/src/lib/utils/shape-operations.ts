@@ -74,34 +74,19 @@ export const calculateResize = (
 	// Get anchor point (opposite corner) in local space
 	const anchor = getAnchorPoint(corner, resizeState.shape);
 
-	let width: number;
-	let height: number;
+	// Maintain aspect ratio for all shapes (including text shapes)
+	let { width, height } = calculateDimensionsFromAnchor(
+		anchor,
+		localMousePos,
+		resizeState.aspectRatio
+	);
 
-	// For text shapes, allow free resize (no aspect ratio constraint).
-	if (resizeState.shape.kind === 'text') {
-		const dx = localMousePos.x - anchor.x;
-		const dy = localMousePos.y - anchor.y;
-		width = Math.abs(dx);
-		height = Math.abs(dy);
-
-		const minSize = 10;
-		if (width < minSize) width = minSize;
-		if (height < minSize) height = minSize;
-	} else {
-		// For non-text shapes (e.g. images), maintain aspect ratio.
-		({ width, height } = calculateDimensionsFromAnchor(
-			anchor,
-			localMousePos,
-			resizeState.aspectRatio
-		));
-
-		// Apply minimum size constraints while keeping aspect ratio
-		({ width, height } = applyMinSizeConstraints(
-			width,
-			height,
-			resizeState.aspectRatio
-		));
-	}
+	// Apply minimum size constraints while keeping aspect ratio
+	({ width, height } = applyMinSizeConstraints(
+		width,
+		height,
+		resizeState.aspectRatio
+	));
 
 	// Calculate new position from anchor point
 	const { x, y } = calculatePositionFromAnchor(corner, anchor, width, height);
