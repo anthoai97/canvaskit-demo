@@ -64,6 +64,9 @@ export class TextEditor {
 		// Initialize history with current text
 		this.saveHistory();
 
+		// Auto-adjust shape dimensions to fit text on first render
+		this.updateShape();
+
 		// Initial layout
 		this.updateLayout(cameraState);
 
@@ -177,23 +180,12 @@ export class TextEditor {
 			[low, high] = [this.cursorIndex, this.cursorIndex + 1];
 		}
 
-		console.log('[TextEditor] getCursorRect:', {
-			cursorIndex: this.cursorIndex,
-			textLength: this.model.text.length,
-			text: this.model.text,
-			low,
-			high,
-			useRightEdge
-		});
-
 		const rects = paragraph.getRectsForRange(
 			low,
 			high,
 			this.ck.RectHeightStyle.Max,
 			this.ck.RectWidthStyle.Tight
 		);
-
-		console.log('[TextEditor] getRectsForRange returned:', rects.length, 'rects');
 
 		let cursorRect: Float32Array | null = null;
 
@@ -204,16 +196,9 @@ export class TextEditor {
 			const cursorX = useRightEdge ? x1 : x0;
 			const cursorWidth = 2; // 2px wide cursor
 			cursorRect = Float32Array.of(cursorX, y0, cursorX + cursorWidth, y1);
-			console.log('[TextEditor] Cursor rect created:', {
-				x0, y0, x1, y1,
-				cursorX,
-				cursorWidth,
-				finalRect: Array.from(cursorRect)
-			});
 		} else {
 			// Fallback for empty text
 			cursorRect = Float32Array.of(0, 0, 2, this.shape.fontSize);
-			console.log('[TextEditor] Using fallback cursor rect:', Array.from(cursorRect));
 		}
 
 		paragraph.delete();
@@ -228,13 +213,6 @@ export class TextEditor {
 
 		// Get the glyph position at the clicked coordinate
 		const glyphInfo = paragraph.getGlyphPositionAtCoordinate(x, y);
-
-		console.log('[TextEditor] getCursorIndexFromPoint:', {
-			x,
-			y,
-			glyphInfo,
-			textLength: this.model.text.length
-		});
 
 		paragraph.delete();
 
@@ -289,12 +267,6 @@ export class TextEditor {
 			this.cursorIndex = this.model.clampPosition(previousState.cursorIndex);
 			this.updateShape();
 			this.callbacks.onCursorMove(); // Trigger cursor redraw
-
-			console.log('[TextEditor] Undo:', {
-				historyIndex: this.historyIndex,
-				restoredText: previousState.text,
-				restoredCursor: previousState.cursorIndex
-			});
 		}
 	}
 }

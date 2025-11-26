@@ -50,7 +50,7 @@ export function calculateFitFontSize(
 	maxWidth: number,
 	maxHeight: number,
 	minFontSize: number = 8,
-	maxFontSize: number = 200
+	maxFontSize: number = 2000
 ): number {
 	// Handle empty text
 	if (!text || text.trim().length === 0) {
@@ -147,7 +147,7 @@ export function calculateTextDimensions(
 	builder.delete();
 
 	// Add some padding for better appearance
-	const padding = 10;
+	const padding = 5;
 	return {
 		width: Math.ceil(longestLine) + padding,
 		height: Math.ceil(height) + padding

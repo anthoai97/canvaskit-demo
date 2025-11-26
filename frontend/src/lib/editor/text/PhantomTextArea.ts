@@ -104,6 +104,7 @@ export class PhantomTextArea extends TypedEventTarget<PhantomTextAreaEventMap> {
 					this.dispatchEvent({ type: "right" });
 					break;
 				case "Enter":
+					e.preventDefault();
 					this.dispatchEvent({ type: "enter" });
 					break;
 			}
