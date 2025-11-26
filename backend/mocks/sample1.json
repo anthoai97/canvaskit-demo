@@ -274,10 +274,9 @@
 					"image": null,
 					"rotate": -1,
 					"animation": {
-						"type": "pan",
+						"type": "fade",
 						"duration": 1200,
-						"delay": 800,
-						"direction": "left"
+						"delay": 800
 					}
 				},
 				{
@@ -331,10 +330,9 @@
 					"image": null,
 					"rotate": 1,
 					"animation": {
-						"type": "pan",
+						"type": "fade",
 						"duration": 1200,
-						"delay": 1000,
-						"direction": "right"
+						"delay": 1000
 					}
 				},
 				{
