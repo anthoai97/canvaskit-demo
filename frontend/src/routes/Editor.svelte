@@ -829,16 +829,19 @@
 			// Snapshot document for independent recording
 			recordingDocument = {
 				...document,
-				pages: document!.pages.map((p) => ({
-					...p,
-					shapes:
-						shapes != null
-							? shapes
-							: p.shapes.map((s) => ({
-									...s,
-									id: undefined
-								}))
-				}))
+				pages: document!.pages.map((p) => {
+					// Use current shapes state if this is the active page
+					const pageShapes = page && p.id === page.id ? shapes : p.shapes;
+
+					return {
+						...p,
+						shapes: pageShapes.map((s) => ({
+							...s,
+							// Clear ID to avoid any potential conflicts during export/render
+							id: undefined
+						}))
+					};
+				})
 			};
 
 			console.log('Recording document:', recordingDocument.pages);
